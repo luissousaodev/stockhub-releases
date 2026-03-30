@@ -1,0 +1,32 @@
+# --- Dados do usuário (gerados em runtime) ---
+*.json
+!package.json
+
+# --- Miniaturas e cache ---
+thumbs/
+.thumbcache/
+*.tmp
+
+# --- Logs ---
+*.log
+logs/
+
+# --- Sistema operacional ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Editores ---
+.vscode/
+.idea/
+*.suo
+*.user
+*.swp
+*.swo
+
+# --- Node (se usar dependências externas no futuro) ---
+node_modules/
+npm-debug.log*
+
+# --- Adobe CEP (gerado pelo host) ---
+.debug
