@@ -144,9 +144,10 @@ function importFileToTimeline(filePath) {
             }
         }
 
-        // If no free track found, use the highest track index (least likely to conflict visually)
+        // If no free track found, create a new video track above the existing ones
         if (!targetTrack) {
-            targetTrack = activeSequence.videoTracks[videoTrackCount - 1];
+            activeSequence.videoTracks.addTrack();
+            targetTrack = activeSequence.videoTracks[activeSequence.videoTracks.numTracks - 1];
         }
 
         // Use overwriteClip instead of insertClip to avoid pushing/rippling existing clips
