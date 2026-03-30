@@ -104,6 +104,7 @@ function applyFolderChange(folderPath, autoCategories) {
   closeModal();
   state.customFolder = folderPath;
   state.autoCategories = autoCategories;
+  if (autoCategories) state.deletedCategoryIds = [];
   saveState();
   ensureStockFolder();
   thumbLookupCache = {};
