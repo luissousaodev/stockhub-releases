@@ -32,6 +32,7 @@ var state = {
   customFolder: null,
   autoCategories: true,
   deletedCategoryIds: [],
+  userId: null,
 };
 
 // --- Stock Folder ---
@@ -148,6 +149,7 @@ function loadState() {
       if (data.customFolder) state.customFolder = data.customFolder;
       if (data.autoCategories !== undefined) state.autoCategories = data.autoCategories;
       if (data.deletedCategoryIds) state.deletedCategoryIds = data.deletedCategoryIds;
+      if (data.userId) state.userId = data.userId;
     }
   } catch (e) {
     console.log("No saved state:", e);
@@ -170,6 +172,7 @@ function saveState() {
       customFolder: state.customFolder,
       autoCategories: state.autoCategories,
       deletedCategoryIds: state.deletedCategoryIds,
+      userId: state.userId,
     }), "utf-8");
   } catch (e) {
     console.error("Save failed:", e);
@@ -363,6 +366,7 @@ function importToProject(fileIndex) {
   cs.evalScript("importFileToProject('" + escapedPath + "')", function(result) {
     try {
       var res = JSON.parse(result);
+      if (res.success && !res.alreadyExists) trackEvent(file, "import");
       showToast(res.success ? (res.alreadyExists ? "Ja no projeto: " + file.name : "Importado: " + file.name) : (res.error || "Erro ao importar"));
     } catch (e) {
       showToast("Erro ao importar");
@@ -686,6 +690,7 @@ function onDoubleClick(fileIndex) {
   cs.evalScript("importFileToTimeline('" + escapedPath + "')", function(result) {
     try {
       var res = JSON.parse(result);
+      if (res.success) trackEvent(file, "timeline");
       showToast(res.success ? "Inserido na timeline: " + file.name : (res.error || "Erro ao inserir"));
     } catch (e) {
       showToast("Erro ao inserir na timeline");
@@ -1105,6 +1110,440 @@ function showToast(msg) {
   setTimeout(function() { toast.remove(); }, 3000);
 }
 
+// --- User ID Setup ---
+function showUserIdModal() {
+  var container = document.getElementById("modalContainer");
+  var defaultName = (process.env.USERNAME || process.env.USER || "").replace(/[^a-zA-Z0-9_-]/g, "");
+  container.innerHTML =
+    '<div class="modal-overlay">' +
+      '<div class="modal" onclick="event.stopPropagation()">' +
+        '<h3>Bem-vindo ao StockHub</h3>' +
+        '<p style="font-size:11px;color:var(--text-secondary);margin:0 0 12px;">Informe seu nome para rastrear o uso de assets pela equipe.</p>' +
+        '<input type="text" id="userIdInput" placeholder="Seu nome (ex: joao, maria)" value="' + defaultName + '" onkeydown="if(event.key===\'Enter\')confirmUserId()">' +
+        '<div class="modal-actions">' +
+          '<button class="btn btn-primary" onclick="confirmUserId()">Confirmar</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  setTimeout(function() {
+    var inp = document.getElementById("userIdInput");
+    if (inp) { inp.focus(); inp.select(); }
+  }, 100);
+}
+
+function confirmUserId() {
+  var input = document.getElementById("userIdInput");
+  var name = input ? input.value.trim() : "";
+  if (!name) { showToast("Informe seu nome"); return; }
+  state.userId = name.toLowerCase().replace(/[^a-z0-9_-]/g, "-");
+  saveState();
+  closeModal();
+  showToast("Usuario definido: " + state.userId);
+}
+
+// --- Event Tracking (JSONL) ---
+function getEventsDir() {
+  var path = require("path");
+  return path.join(getStockFolder(), "stockhub-data", "events");
+}
+
+function trackEvent(file, action) {
+  if (!state.userId) return;
+  var fs = require("fs");
+  var path = require("path");
+  var now = new Date();
+  var dateStr = now.toISOString().slice(0, 10); // YYYY-MM-DD
+  var dayDir = path.join(getEventsDir(), dateStr);
+
+  try {
+    if (!fs.existsSync(dayDir)) fs.mkdirSync(dayDir, { recursive: true });
+  } catch (e) {
+    console.error("trackEvent mkdir:", e);
+    return;
+  }
+
+  var event = {
+    assetName: file.name,
+    assetPath: file.path,
+    category: file.category || "all",
+    type: file.type || "unknown",
+    userId: state.userId,
+    action: action,
+    usedAt: now.toISOString()
+  };
+
+  var filePath = path.join(dayDir, state.userId + ".jsonl");
+  try {
+    fs.appendFileSync(filePath, JSON.stringify(event) + "\n", "utf-8");
+  } catch (e) {
+    console.error("trackEvent write:", e);
+  }
+}
+
+// --- Event Reading & Aggregation ---
+function readEvents(startDate, endDate, filters) {
+  var fs = require("fs");
+  var path = require("path");
+  var eventsDir = getEventsDir();
+  var events = [];
+
+  if (!fs.existsSync(eventsDir)) return events;
+
+  var dirs;
+  try { dirs = fs.readdirSync(eventsDir); } catch (e) { return events; }
+
+  var start = startDate || "0000-00-00";
+  var end = endDate || "9999-99-99";
+
+  for (var d = 0; d < dirs.length; d++) {
+    var dateDir = dirs[d];
+    if (dateDir < start || dateDir > end) continue;
+    var fullDir = path.join(eventsDir, dateDir);
+    var stat;
+    try { stat = fs.statSync(fullDir); } catch (e) { continue; }
+    if (!stat.isDirectory()) continue;
+
+    var files;
+    try { files = fs.readdirSync(fullDir); } catch (e) { continue; }
+
+    for (var f = 0; f < files.length; f++) {
+      if (!files[f].endsWith(".jsonl")) continue;
+
+      // userId filter at file level
+      if (filters && filters.userId) {
+        var fileUserId = files[f].replace(".jsonl", "");
+        if (fileUserId !== filters.userId) continue;
+      }
+
+      var content;
+      try { content = fs.readFileSync(path.join(fullDir, files[f]), "utf-8"); } catch (e) { continue; }
+      var lines = content.trim().split("\n");
+
+      for (var l = 0; l < lines.length; l++) {
+        if (!lines[l]) continue;
+        try {
+          var evt = JSON.parse(lines[l]);
+          if (filters) {
+            if (filters.category && evt.category !== filters.category) continue;
+            if (filters.type && evt.type !== filters.type) continue;
+          }
+          events.push(evt);
+        } catch (e) { continue; }
+      }
+    }
+  }
+
+  return events;
+}
+
+function aggregateEvents(events) {
+  var topAssets = {};
+  var byUser = {};
+  var byCategory = {};
+  var byDay = {};
+  var lastUse = {};
+
+  for (var i = 0; i < events.length; i++) {
+    var e = events[i];
+
+    // Top assets
+    var key = e.assetName;
+    topAssets[key] = (topAssets[key] || 0) + 1;
+
+    // By user
+    byUser[e.userId] = (byUser[e.userId] || 0) + 1;
+
+    // By category
+    byCategory[e.category] = (byCategory[e.category] || 0) + 1;
+
+    // By day
+    var day = e.usedAt ? e.usedAt.slice(0, 10) : "unknown";
+    byDay[day] = (byDay[day] || 0) + 1;
+
+    // Last use per asset
+    if (!lastUse[key] || e.usedAt > lastUse[key]) {
+      lastUse[key] = e.usedAt;
+    }
+  }
+
+  // Sort top assets
+  var topList = Object.keys(topAssets).map(function(k) {
+    return { name: k, count: topAssets[k], lastUse: lastUse[k] || "" };
+  }).sort(function(a, b) { return b.count - a.count; });
+
+  return {
+    total: events.length,
+    topAssets: topList,
+    byUser: byUser,
+    byCategory: byCategory,
+    byDay: byDay
+  };
+}
+
+// --- CSV Export ---
+function exportEventsCSV(events) {
+  var header = "assetName,assetPath,category,type,userId,action,usedAt";
+  var lines = [header];
+  for (var i = 0; i < events.length; i++) {
+    var e = events[i];
+    lines.push([
+      '"' + (e.assetName || "").replace(/"/g, '""') + '"',
+      '"' + (e.assetPath || "").replace(/"/g, '""') + '"',
+      e.category || "",
+      e.type || "",
+      e.userId || "",
+      e.action || "",
+      e.usedAt || ""
+    ].join(","));
+  }
+
+  var csv = lines.join("\n");
+  var path = require("path");
+  var fs = require("fs");
+  var exportPath = path.join(getStockFolder(), "stockhub-export-" + new Date().toISOString().slice(0, 10) + ".csv");
+  try {
+    fs.writeFileSync(exportPath, "\uFEFF" + csv, "utf-8"); // BOM for Excel
+    showToast("Exportado: " + exportPath);
+    // Open in explorer
+    cs.evalScript('new File("' + exportPath.replace(/\\/g, "/") + '").execute()');
+  } catch (e) {
+    showToast("Erro ao exportar: " + e.toString());
+  }
+}
+
+// --- Metrics Panel ---
+var metricsState = {
+  visible: false,
+  startDate: "",
+  endDate: "",
+  filterUserId: "",
+  filterCategory: "",
+  filterType: ""
+};
+
+function toggleMetrics() {
+  metricsState.visible = !metricsState.visible;
+  var panel = document.getElementById("metricsPanel");
+  var sidebar = document.getElementById("sidebar");
+  var gridContainer = document.getElementById("gridContainer");
+  var gridSlider = document.getElementById("gridSliderBar");
+  var metricsBtn = document.getElementById("metricsBtn");
+
+  if (metricsState.visible) {
+    // Close settings if open
+    if (state.showSettings) toggleSettings();
+
+    panel.style.display = "block";
+    sidebar.style.display = "none";
+    gridContainer.style.display = "none";
+    if (gridSlider) gridSlider.style.display = "none";
+    metricsBtn.style.color = "var(--accent)";
+
+    // Default date range: last 30 days
+    if (!metricsState.endDate) {
+      var today = new Date();
+      metricsState.endDate = today.toISOString().slice(0, 10);
+      var start = new Date(today);
+      start.setDate(start.getDate() - 30);
+      metricsState.startDate = start.toISOString().slice(0, 10);
+    }
+
+    renderMetrics();
+  } else {
+    panel.style.display = "none";
+    sidebar.style.display = "flex";
+    gridContainer.style.display = "block";
+    if (gridSlider) gridSlider.style.display = "flex";
+    metricsBtn.style.color = "";
+  }
+}
+
+function renderMetrics() {
+  var filters = {};
+  if (metricsState.filterUserId) filters.userId = metricsState.filterUserId;
+  if (metricsState.filterCategory) filters.category = metricsState.filterCategory;
+  if (metricsState.filterType) filters.type = metricsState.filterType;
+
+  var events = readEvents(metricsState.startDate, metricsState.endDate, filters);
+  var agg = aggregateEvents(events);
+
+  // Get unique users for filter dropdown
+  var allEvents = readEvents(metricsState.startDate, metricsState.endDate, {});
+  var uniqueUsers = {};
+  for (var u = 0; u < allEvents.length; u++) uniqueUsers[allEvents[u].userId] = true;
+  var userList = Object.keys(uniqueUsers).sort();
+
+  // Get categories for filter
+  var catOptions = state.categories.filter(function(c) { return !c.system; }).map(function(c) {
+    return '<option value="' + c.id + '"' + (metricsState.filterCategory === c.id ? " selected" : "") + '>' + c.name + '</option>';
+  }).join("");
+
+  // Get users for filter
+  var userOptions = userList.map(function(uid) {
+    return '<option value="' + uid + '"' + (metricsState.filterUserId === uid ? " selected" : "") + '>' + uid + '</option>';
+  }).join("");
+
+  var panel = document.getElementById("metricsContent");
+
+  // --- Filters ---
+  var filtersHtml =
+    '<div class="metrics-filters">' +
+      '<div class="metrics-filter-row">' +
+        '<label>De:</label>' +
+        '<input type="date" id="metricsStartDate" value="' + metricsState.startDate + '" onchange="metricsState.startDate=this.value;renderMetrics()">' +
+        '<label>Ate:</label>' +
+        '<input type="date" id="metricsEndDate" value="' + metricsState.endDate + '" onchange="metricsState.endDate=this.value;renderMetrics()">' +
+      '</div>' +
+      '<div class="metrics-filter-row">' +
+        '<label>Usuario:</label>' +
+        '<select onchange="metricsState.filterUserId=this.value;renderMetrics()"><option value="">Todos</option>' + userOptions + '</select>' +
+        '<label>Categoria:</label>' +
+        '<select onchange="metricsState.filterCategory=this.value;renderMetrics()"><option value="">Todas</option>' + catOptions + '</select>' +
+        '<label>Tipo:</label>' +
+        '<select onchange="metricsState.filterType=this.value;renderMetrics()">' +
+          '<option value="">Todos</option>' +
+          '<option value="video"' + (metricsState.filterType === "video" ? " selected" : "") + '>Video</option>' +
+          '<option value="audio"' + (metricsState.filterType === "audio" ? " selected" : "") + '>Audio</option>' +
+          '<option value="image"' + (metricsState.filterType === "image" ? " selected" : "") + '>Imagem</option>' +
+          '<option value="mogrt"' + (metricsState.filterType === "mogrt" ? " selected" : "") + '>MOGRT</option>' +
+        '</select>' +
+      '</div>' +
+    '</div>';
+
+  // --- Summary cards ---
+  var summaryHtml =
+    '<div class="metrics-summary">' +
+      '<div class="metrics-card">' +
+        '<div class="metrics-card-value">' + agg.total + '</div>' +
+        '<div class="metrics-card-label">Total de usos</div>' +
+      '</div>' +
+      '<div class="metrics-card">' +
+        '<div class="metrics-card-value">' + agg.topAssets.length + '</div>' +
+        '<div class="metrics-card-label">Assets unicos</div>' +
+      '</div>' +
+      '<div class="metrics-card">' +
+        '<div class="metrics-card-value">' + Object.keys(agg.byUser).length + '</div>' +
+        '<div class="metrics-card-label">Usuarios ativos</div>' +
+      '</div>' +
+      '<div class="metrics-card">' +
+        '<div class="metrics-card-value">' + Object.keys(agg.byDay).length + '</div>' +
+        '<div class="metrics-card-label">Dias com uso</div>' +
+      '</div>' +
+    '</div>';
+
+  // --- Top assets table ---
+  var topN = agg.topAssets.slice(0, 20);
+  var topHtml =
+    '<div class="metrics-section">' +
+      '<div class="metrics-section-title">Top Assets</div>' +
+      '<div class="metrics-table-wrap">' +
+        '<table class="metrics-table">' +
+          '<thead><tr><th>#</th><th>Asset</th><th>Usos</th><th>Ultimo uso</th></tr></thead>' +
+          '<tbody>' +
+          topN.map(function(a, i) {
+            var lastDate = a.lastUse ? a.lastUse.slice(0, 10) : "-";
+            return '<tr><td>' + (i + 1) + '</td><td title="' + a.name + '">' + a.name + '</td><td>' + a.count + '</td><td>' + lastDate + '</td></tr>';
+          }).join("") +
+          (topN.length === 0 ? '<tr><td colspan="4" style="text-align:center;color:var(--text-muted);">Nenhum evento encontrado</td></tr>' : '') +
+          '</tbody>' +
+        '</table>' +
+      '</div>' +
+    '</div>';
+
+  // --- Usage by user ---
+  var userEntries = Object.keys(agg.byUser).map(function(k) { return { name: k, count: agg.byUser[k] }; })
+    .sort(function(a, b) { return b.count - a.count; });
+  var maxUserCount = userEntries.length > 0 ? userEntries[0].count : 1;
+
+  var userHtml =
+    '<div class="metrics-section">' +
+      '<div class="metrics-section-title">Uso por usuario</div>' +
+      '<div class="metrics-bars">' +
+      userEntries.map(function(u) {
+        var pct = Math.round((u.count / maxUserCount) * 100);
+        return '<div class="metrics-bar-row">' +
+          '<span class="metrics-bar-label">' + u.name + '</span>' +
+          '<div class="metrics-bar-track"><div class="metrics-bar-fill" style="width:' + pct + '%"></div></div>' +
+          '<span class="metrics-bar-value">' + u.count + '</span>' +
+        '</div>';
+      }).join("") +
+      (userEntries.length === 0 ? '<div style="color:var(--text-muted);font-size:11px;padding:8px;">Nenhum dado</div>' : '') +
+      '</div>' +
+    '</div>';
+
+  // --- Usage by category ---
+  var catEntries = Object.keys(agg.byCategory).map(function(k) {
+    var catName = k;
+    for (var c = 0; c < state.categories.length; c++) {
+      if (state.categories[c].id === k) { catName = state.categories[c].name; break; }
+    }
+    return { id: k, name: catName, count: agg.byCategory[k] };
+  }).sort(function(a, b) { return b.count - a.count; });
+  var maxCatCount = catEntries.length > 0 ? catEntries[0].count : 1;
+
+  var catHtml =
+    '<div class="metrics-section">' +
+      '<div class="metrics-section-title">Uso por categoria</div>' +
+      '<div class="metrics-bars">' +
+      catEntries.map(function(c) {
+        var pct = Math.round((c.count / maxCatCount) * 100);
+        var color = "var(--accent)";
+        for (var i = 0; i < state.categories.length; i++) {
+          if (state.categories[i].id === c.id) { color = state.categories[i].color; break; }
+        }
+        return '<div class="metrics-bar-row">' +
+          '<span class="metrics-bar-label">' + c.name + '</span>' +
+          '<div class="metrics-bar-track"><div class="metrics-bar-fill" style="width:' + pct + '%;background:' + color + '"></div></div>' +
+          '<span class="metrics-bar-value">' + c.count + '</span>' +
+        '</div>';
+      }).join("") +
+      (catEntries.length === 0 ? '<div style="color:var(--text-muted);font-size:11px;padding:8px;">Nenhum dado</div>' : '') +
+      '</div>' +
+    '</div>';
+
+  // --- Volume by day (mini chart) ---
+  var dayKeys = Object.keys(agg.byDay).sort();
+  var maxDayCount = 1;
+  for (var dk = 0; dk < dayKeys.length; dk++) {
+    if (agg.byDay[dayKeys[dk]] > maxDayCount) maxDayCount = agg.byDay[dayKeys[dk]];
+  }
+
+  var dayHtml =
+    '<div class="metrics-section">' +
+      '<div class="metrics-section-title">Volume por dia</div>' +
+      '<div class="metrics-day-chart">' +
+      dayKeys.map(function(day) {
+        var count = agg.byDay[day];
+        var h = Math.max(4, Math.round((count / maxDayCount) * 60));
+        return '<div class="metrics-day-bar" title="' + day + ': ' + count + ' usos">' +
+          '<div class="metrics-day-bar-fill" style="height:' + h + 'px"></div>' +
+          '<div class="metrics-day-label">' + day.slice(5) + '</div>' +
+        '</div>';
+      }).join("") +
+      (dayKeys.length === 0 ? '<div style="color:var(--text-muted);font-size:11px;padding:8px;">Nenhum dado</div>' : '') +
+      '</div>' +
+    '</div>';
+
+  // --- Export button ---
+  var exportHtml =
+    '<div style="margin-top:8px;">' +
+      '<button class="btn" onclick="exportEventsCSV(readEvents(metricsState.startDate,metricsState.endDate,{' +
+        (metricsState.filterUserId ? 'userId:\'' + metricsState.filterUserId + '\',' : '') +
+        (metricsState.filterCategory ? 'category:\'' + metricsState.filterCategory + '\',' : '') +
+        (metricsState.filterType ? 'type:\'' + metricsState.filterType + '\'' : '') +
+      '}))" style="width:100%;">' +
+        '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+          '<path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>' +
+        '</svg>' +
+        'Exportar CSV' +
+      '</button>' +
+    '</div>';
+
+  panel.innerHTML = filtersHtml + summaryHtml +
+    '<div class="metrics-columns">' + topHtml + '<div>' + userHtml + catHtml + '</div></div>' +
+    dayHtml + exportHtml;
+}
+
 // --- Init ---
 function init() {
   try {
@@ -1120,6 +1559,11 @@ function init() {
     }
 
     refreshFiles();
+
+    // Show userId modal if not set
+    if (!state.userId) {
+      showUserIdModal();
+    }
   } catch (e) {
     alert("StockHub init error: " + e.toString());
   }
