@@ -130,12 +130,13 @@ function importFileToTimeline(filePath) {
             }
         }
 
-        // If no free track found, create a new video track above the existing ones
+        // If no free track found, create a new video track via QE DOM
         if (!targetTrack) {
-            var numVideoBefore = activeSequence.videoTracks.numTracks;
-            // addTracks(videoTracksToAdd, audioTracksToAdd, videoInsertAfterIndex, audioInsertAfterIndex)
-            // Insert 1 video track after the last existing track, 0 audio tracks
-            activeSequence.addTracks(1, 0, Math.max(0, numVideoBefore - 1), 0);
+            app.enableQE();
+            var qeSequence = qe.project.getActiveSequence();
+            // addTracks(numVideoTracks, numAudioTracks, audioTrackType)
+            // audioTrackType: 0=mono, 1=stereo, 2=5.1
+            qeSequence.addTracks(1, 0, 1);
             targetTrack = activeSequence.videoTracks[activeSequence.videoTracks.numTracks - 1];
         }
 
