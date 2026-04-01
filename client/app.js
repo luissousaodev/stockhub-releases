@@ -158,7 +158,15 @@ function loadState() {
       if (data.categories) state.categories = data.categories;
       if (data.gridSize) state.gridSize = data.gridSize;
       if (data.fileCategories) state.fileCategories = data.fileCategories;
-      if (data.customFolder) state.customFolder = data.customFolder;
+      if (data.customFolder) {
+        var fs = require("fs");
+        if (fs.existsSync(data.customFolder)) {
+          state.customFolder = data.customFolder;
+        } else {
+          console.warn("Pasta personalizada nao encontrada, revertendo para padrao:", data.customFolder);
+          state.customFolder = null;
+        }
+      }
       if (data.autoCategories !== undefined) state.autoCategories = data.autoCategories;
       if (data.deletedCategoryIds) state.deletedCategoryIds = data.deletedCategoryIds;
       if (data.userId) state.userId = data.userId;
@@ -267,7 +275,17 @@ function scanFolder(folderPath) {
 }
 
 function refreshFiles() {
+  var fs = require("fs");
   var folder = getStockFolder();
+  if (state.customFolder && !fs.existsSync(state.customFolder)) {
+    var invalidFolder = state.customFolder;
+    state.customFolder = null;
+    saveState();
+    folder = getStockFolder();
+    var fp = document.getElementById("stockFolderPath");
+    if (fp) fp.textContent = folder;
+    showToast("Pasta \"" + invalidFolder + "\" nao encontrada. Revertendo para pasta padrao.");
+  }
   state.files = scanFolder(folder);
   renderAll();
   showToast(state.files.length + " arquivos encontrados");
