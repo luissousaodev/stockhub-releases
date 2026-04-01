@@ -105,37 +105,23 @@ function importFileToTimeline(filePath) {
         var currentTime = activeSequence.getPlayerPosition();
         var videoTrackCount = activeSequence.videoTracks.numTracks;
 
-        // Get the duration of the clip being inserted
-        var clipDuration = null;
-        try {
-            clipDuration = projectItem.getOutPoint().ticks - projectItem.getInPoint().ticks;
-        } catch (e) {}
-
-        // Find first video track that has NO clips overlapping the insertion range
+        // Find first video track with no clips (safest: any track that has clips is skipped
+        // at the playhead region). Note: .ticks returns strings in ExtendScript, so we
+        // must convert to Number for correct numeric comparison.
+        var playheadTicks = Number(currentTime.ticks);
         var targetTrack = null;
         for (var t = 0; t < videoTrackCount; t++) {
             var track = activeSequence.videoTracks[t];
             var trackIsFree = true;
             for (var c = 0; c < track.clips.numItems; c++) {
                 var clip = track.clips[c];
-                var clipStart = clip.start.ticks;
-                var clipEnd = clip.end.ticks;
+                var cEnd = Number(clip.end.ticks);
 
-                // Check if this clip overlaps with the insertion point
-                // A clip conflicts if it overlaps anywhere from playhead onward
-                if (clipDuration) {
-                    // We know the duration: check exact overlap
-                    var insertEnd = currentTime.ticks + clipDuration;
-                    if (clipStart < insertEnd && clipEnd > currentTime.ticks) {
-                        trackIsFree = false;
-                        break;
-                    }
-                } else {
-                    // Duration unknown: be safe, reject if any clip is at or after playhead
-                    if (clipEnd > currentTime.ticks) {
-                        trackIsFree = false;
-                        break;
-                    }
+                // Track is NOT free if any existing clip overlaps with or starts at/after playhead
+                // This conservatively prevents overwriting any clip
+                if (cEnd > playheadTicks) {
+                    trackIsFree = false;
+                    break;
                 }
             }
             if (trackIsFree) {
