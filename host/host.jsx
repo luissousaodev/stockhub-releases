@@ -110,7 +110,7 @@ function importFileToTimeline(filePath) {
         // must convert to Number for correct numeric comparison.
         var playheadTicks = Number(currentTime.ticks);
         var targetTrack = null;
-        for (var t = 0; t < videoTrackCount; t++) {
+        for (var t = videoTrackCount - 1; t >= 0; t--) {
             var track = activeSequence.videoTracks[t];
             var trackIsFree = true;
             for (var c = 0; c < track.clips.numItems; c++) {
