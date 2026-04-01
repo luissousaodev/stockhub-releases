@@ -1339,6 +1339,104 @@ function exportEventsCSV(events) {
   }
 }
 
+// --- Custom Date Picker (PT-BR, DD/MM/AAAA) ---
+var PT_MONTHS = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+var PT_DAYS_SHORT = ["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
+
+var _dpState = { field: null, year: 0, month: 0 };
+
+function formatDateBR(iso) {
+  if (!iso) return "";
+  var p = iso.split("-");
+  return p[2] + "/" + p[1] + "/" + p[0];
+}
+
+function _isoToday() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function openDatePicker(field, currentIso) {
+  _dpState.field = field;
+  var d = currentIso ? new Date(currentIso + "T00:00:00") : new Date();
+  _dpState.year  = d.getFullYear();
+  _dpState.month = d.getMonth();
+
+  var overlay = document.getElementById("dpOverlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "dpOverlay";
+    overlay.className = "dp-overlay";
+    overlay.innerHTML =
+      '<div class="dp-modal" id="dpModal">' +
+        '<div class="dp-header">' +
+          '<button class="dp-nav" onclick="dpNavigate(-1)">&#8249;</button>' +
+          '<span class="dp-title" id="dpTitle"></span>' +
+          '<button class="dp-nav" onclick="dpNavigate(1)">&#8250;</button>' +
+        '</div>' +
+        '<div class="dp-weekdays" id="dpWeekdays"></div>' +
+        '<div class="dp-grid" id="dpGrid"></div>' +
+        '<div class="dp-footer">' +
+          '<button class="dp-btn-cancel" onclick="closeDatePicker()">Cancelar</button>' +
+          '<button class="dp-btn-today" onclick="dpSelectToday()">Hoje</button>' +
+        '</div>' +
+      '</div>';
+    overlay.addEventListener("click", function(e) { if (e.target === overlay) closeDatePicker(); });
+    document.body.appendChild(overlay);
+  }
+
+  _refreshDatePicker();
+  overlay.style.display = "flex";
+}
+
+function dpNavigate(dir) {
+  _dpState.month += dir;
+  if (_dpState.month > 11) { _dpState.month = 0; _dpState.year++; }
+  if (_dpState.month < 0)  { _dpState.month = 11; _dpState.year--; }
+  _refreshDatePicker();
+}
+
+function _refreshDatePicker() {
+  var y = _dpState.year, m = _dpState.month;
+  document.getElementById("dpTitle").textContent = PT_MONTHS[m] + " " + y;
+
+  document.getElementById("dpWeekdays").innerHTML = PT_DAYS_SHORT.map(function(d) {
+    return '<span class="dp-weekday">' + d + '</span>';
+  }).join("");
+
+  var firstDay = new Date(y, m, 1).getDay();
+  var daysInMonth = new Date(y, m + 1, 0).getDate();
+  var todayIso = _isoToday();
+  var currentIso = _dpState.field === "start" ? metricsState.startDate : metricsState.endDate;
+
+  var cells = "";
+  for (var i = 0; i < firstDay; i++) cells += '<span class="dp-cell dp-empty"></span>';
+  for (var day = 1; day <= daysInMonth; day++) {
+    var iso = y + "-" + (m < 9 ? "0" : "") + (m + 1) + "-" + (day < 10 ? "0" : "") + day;
+    var cls = "dp-cell";
+    if (iso === currentIso) cls += " dp-selected";
+    else if (iso === todayIso) cls += " dp-today-mark";
+    cells += '<span class="' + cls + '" onclick="dpSelectDay(\'' + iso + '\')">' + day + '</span>';
+  }
+  document.getElementById("dpGrid").innerHTML = cells;
+}
+
+function dpSelectDay(iso) {
+  if (_dpState.field === "start") {
+    metricsState.startDate = iso;
+  } else {
+    metricsState.endDate = iso;
+  }
+  closeDatePicker();
+  renderMetrics();
+}
+
+function dpSelectToday() { dpSelectDay(_isoToday()); }
+
+function closeDatePicker() {
+  var overlay = document.getElementById("dpOverlay");
+  if (overlay) overlay.style.display = "none";
+}
+
 // --- Metrics Panel ---
 var metricsState = {
   visible: false,
@@ -1418,9 +1516,9 @@ function renderMetrics() {
     '<div class="metrics-filters">' +
       '<div class="metrics-filter-row">' +
         '<label>De:</label>' +
-        '<input type="date" id="metricsStartDate" value="' + metricsState.startDate + '" onchange="metricsState.startDate=this.value;renderMetrics()">' +
-        '<label>Ate:</label>' +
-        '<input type="date" id="metricsEndDate" value="' + metricsState.endDate + '" onchange="metricsState.endDate=this.value;renderMetrics()">' +
+        '<button class="date-picker-btn" onclick="openDatePicker(\'start\', metricsState.startDate)">' + (metricsState.startDate ? formatDateBR(metricsState.startDate) : "DD/MM/AAAA") + '</button>' +
+        '<label>Até:</label>' +
+        '<button class="date-picker-btn" onclick="openDatePicker(\'end\', metricsState.endDate)">' + (metricsState.endDate ? formatDateBR(metricsState.endDate) : "DD/MM/AAAA") + '</button>' +
       '</div>' +
       '<div class="metrics-filter-row">' +
         '<label>Usuario:</label>' +
@@ -1469,7 +1567,7 @@ function renderMetrics() {
           '<thead><tr><th>#</th><th>Asset</th><th>Usos</th><th>Ultimo uso</th></tr></thead>' +
           '<tbody>' +
           topN.map(function(a, i) {
-            var lastDate = a.lastUse ? a.lastUse.slice(0, 10) : "-";
+            var lastDate = a.lastUse ? formatDateBR(a.lastUse.slice(0, 10)) : "-";
             return '<tr><td>' + (i + 1) + '</td><td title="' + a.name + '">' + a.name + '</td><td>' + a.count + '</td><td>' + lastDate + '</td></tr>';
           }).join("") +
           (topN.length === 0 ? '<tr><td colspan="4" style="text-align:center;color:var(--text-muted);">Nenhum evento encontrado</td></tr>' : '') +
@@ -1543,9 +1641,9 @@ function renderMetrics() {
       dayKeys.map(function(day) {
         var count = agg.byDay[day];
         var h = Math.max(4, Math.round((count / maxDayCount) * 60));
-        return '<div class="metrics-day-bar" title="' + day + ': ' + count + ' usos">' +
+        return '<div class="metrics-day-bar" title="' + formatDateBR(day) + ': ' + count + ' usos">' +
           '<div class="metrics-day-bar-fill" style="height:' + h + 'px"></div>' +
-          '<div class="metrics-day-label">' + day.slice(5) + '</div>' +
+          '<div class="metrics-day-label">' + day.slice(8) + '/' + day.slice(5, 7) + '</div>' +
         '</div>';
       }).join("") +
       (dayKeys.length === 0 ? '<div style="color:var(--text-muted);font-size:11px;padding:8px;">Nenhum dado</div>' : '') +

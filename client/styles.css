@@ -702,8 +702,8 @@ html, body {
   white-space: nowrap;
 }
 
-.metrics-filter-row input[type="date"],
-.metrics-filter-row select {
+.metrics-filter-row select,
+.date-picker-btn {
   flex: 1;
   min-width: 0;
   padding: 4px 6px;
@@ -716,10 +716,140 @@ html, body {
   outline: none;
 }
 
-.metrics-filter-row input[type="date"]:focus,
-.metrics-filter-row select:focus {
+.date-picker-btn {
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s;
+}
+
+.metrics-filter-row select:focus,
+.date-picker-btn:hover {
   border-color: var(--accent);
 }
+
+/* --- Custom Date Picker Modal --- */
+.dp-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 9999;
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.dp-modal {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  width: 228px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  animation: dpFadeIn 0.12s ease;
+}
+
+@keyframes dpFadeIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+.dp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.dp-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-transform: capitalize;
+  letter-spacing: 0.2px;
+}
+
+.dp-nav {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: var(--radius);
+  transition: color 0.15s, background 0.15s;
+}
+.dp-nav:hover { color: var(--accent); background: var(--bg-hover); }
+
+.dp-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  margin-bottom: 4px;
+}
+
+.dp-weekday {
+  text-align: center;
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  padding: 2px 0;
+  letter-spacing: 0.2px;
+}
+
+.dp-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.dp-cell {
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-secondary);
+  padding: 6px 0;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+.dp-cell:hover { background: var(--bg-hover); color: var(--text-primary); }
+.dp-cell.dp-empty { cursor: default; pointer-events: none; }
+.dp-cell.dp-today-mark { font-weight: 700; color: var(--accent); }
+.dp-cell.dp-selected { background: var(--accent); color: #fff; font-weight: 700; }
+.dp-cell.dp-selected:hover { background: var(--accent); }
+
+.dp-footer {
+  display: flex;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.dp-btn-cancel,
+.dp-btn-today {
+  flex: 1;
+  padding: 6px;
+  border-radius: var(--radius);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.dp-btn-cancel {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+.dp-btn-cancel:hover { color: var(--text-primary); border-color: var(--text-muted); }
+
+.dp-btn-today {
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+}
+.dp-btn-today:hover { background: var(--accent); color: #fff; }
 
 .metrics-summary {
   display: grid;
