@@ -85,16 +85,14 @@ function importFileToTimeline(filePath) {
             return JSON.stringify({ success: false, error: "Nenhuma sequência ativa" });
         }
 
-        // Check if file already exists in project
         var projectItem = findProjectItemByPath(project.rootItem, filePath);
 
         if (!projectItem) {
-            // Import first
             var importResult = JSON.parse(importFileToProject(filePath));
             if (!importResult.success) {
                 return JSON.stringify(importResult);
             }
-            // Find the newly imported item
+
             projectItem = findProjectItemByPath(project.rootItem, filePath);
         }
 
@@ -102,46 +100,54 @@ function importFileToTimeline(filePath) {
             return JSON.stringify({ success: false, error: "Não foi possível encontrar o arquivo no projeto" });
         }
 
-        // Insert at playhead position on a free track (never overlap existing clips)
         var currentTime = activeSequence.getPlayerPosition();
-        var videoTrackCount = activeSequence.videoTracks.numTracks;
-
-        // Find first video track with no clips (safest: any track that has clips is skipped
-        // at the playhead region). Note: .ticks returns strings in ExtendScript, so we
-        // must convert to Number for correct numeric comparison.
         var playheadTicks = Number(currentTime.ticks);
-        var targetTrack = null;
-        for (var t = videoTrackCount - 1; t >= 0; t--) {
-            var track = activeSequence.videoTracks[t];
-            var trackIsFree = true;
-            for (var c = 0; c < track.clips.numItems; c++) {
-                var clip = track.clips[c];
-                var cEnd = Number(clip.end.ticks);
 
-                // Track is NOT free if any existing clip overlaps with or starts at/after playhead
-                // This conservatively prevents overwriting any clip
-                if (cEnd > playheadTicks) {
-                    trackIsFree = false;
-                    break;
+        function findFreeTrack(seq, pTicks) {
+            for (var t = 0; t < seq.videoTracks.numTracks; t++) {
+                var trk = seq.videoTracks[t];
+                var free = true;
+
+                for (var c = 0; c < trk.clips.numItems; c++) {
+                    var clip = trk.clips[c];
+                    var clipStart = Number(clip.start.ticks);
+                    var clipEnd = Number(clip.end.ticks);
+
+                    if (pTicks >= clipStart && pTicks < clipEnd) {
+                        free = false;
+                        break;
+                    }
                 }
+
+                if (free) return trk;
             }
-            if (trackIsFree) {
-                targetTrack = track;
-                break;
-            }
+            return null;
         }
 
-        // If no free track found, create a new video track via QE DOM
+        var targetTrack = findFreeTrack(activeSequence, playheadTicks);
+
         if (!targetTrack) {
             app.enableQE();
-            var qeSequence = qe.project.getActiveSequence();
-            // addTracks(numVideoTracks, numAudioTracks, audioTrackType)
-            // audioTrackType: 0=mono, 1=stereo, 2=5.1
-            qeSequence.addTracks(1, 0, 1);
-            targetTrack = activeSequence.videoTracks[activeSequence.videoTracks.numTracks - 1];
+            var qeSeq = qe.project.getActiveSequence();
+
+            var oldNumTracks = activeSequence.videoTracks.numTracks;
+
+            // força criação acima da última existente
+            qeSeq.addTracks(1, oldNumTracks, 0, 0);
+
+            var newNumTracks = activeSequence.videoTracks.numTracks;
+
+            if (newNumTracks <= oldNumTracks) {
+                return JSON.stringify({
+                    success: false,
+                    error: "Não foi possível criar nova video track no topo"
+                });
+            }
+
+            // pega diretamente a nova track criada
+            targetTrack = activeSequence.videoTracks[oldNumTracks];
         }
 
-        // Use overwriteClip instead of insertClip to avoid pushing/rippling existing clips
         targetTrack.overwriteClip(projectItem, currentTime);
 
         return JSON.stringify({ success: true, message: "Clip inserido na timeline" });
