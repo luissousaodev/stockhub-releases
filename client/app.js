@@ -1,5 +1,7 @@
 // StockHub - CEP Extension for Premiere Pro
 var cs = new CSInterface();
+var isWindows = process.platform === "win32";
+var isMac = process.platform === "darwin";
 
 // --- Format Groups ---
 var FORMAT_GROUPS = {
@@ -38,8 +40,8 @@ var state = {
 // --- Stock Folder ---
 function getDefaultStockFolder() {
   var path = require("path");
-  var userProfile = process.env.USERPROFILE || process.env.HOME || "";
-  return path.join(userProfile, "StockHub");
+  var home = process.env.HOME || process.env.USERPROFILE || "";
+  return path.join(home, "StockHub");
 }
 
 function getStockFolder() {
@@ -73,17 +75,27 @@ function openStockFolder() {
 
 function changeStockFolder() {
   var child = require("child_process");
-  var psScript = '[System.Reflection.Assembly]::LoadWithPartialName("System.Windows.Forms") | Out-Null; ' +
-    '$dlg = New-Object System.Windows.Forms.FolderBrowserDialog; ' +
-    '$dlg.Description = "Selecionar pasta de assets"; ' +
-    '$dlg.ShowNewFolderButton = $true; ' +
-    'if ($dlg.ShowDialog() -eq "OK") { $dlg.SelectedPath } else { "" }';
-  child.exec('powershell -Command "' + psScript.replace(/"/g, '\\"') + '"', function(err, stdout) {
-    var result = stdout ? stdout.trim() : "";
-    if (!err && result) {
-      showAutoCategoryModal(result);
-    }
-  });
+  if (isWindows) {
+    var psScript = '[System.Reflection.Assembly]::LoadWithPartialName("System.Windows.Forms") | Out-Null; ' +
+      '$dlg = New-Object System.Windows.Forms.FolderBrowserDialog; ' +
+      '$dlg.Description = "Selecionar pasta de assets"; ' +
+      '$dlg.ShowNewFolderButton = $true; ' +
+      'if ($dlg.ShowDialog() -eq "OK") { $dlg.SelectedPath } else { "" }';
+    child.exec('powershell -Command "' + psScript.replace(/"/g, '\\"') + '"', function(err, stdout) {
+      var result = stdout ? stdout.trim() : "";
+      if (!err && result) {
+        showAutoCategoryModal(result);
+      }
+    });
+  } else {
+    var appleScript = 'osascript -e \'tell application "SystemUIServer" to set folderPath to POSIX path of (choose folder with prompt "Selecionar pasta de assets")\'';
+    child.exec(appleScript, function(err, stdout) {
+      var result = stdout ? stdout.trim() : "";
+      if (!err && result) {
+        showAutoCategoryModal(result);
+      }
+    });
+  }
 }
 
 function showAutoCategoryModal(folderPath) {
@@ -400,52 +412,68 @@ function findFFmpeg() {
   var fs = require("fs");
   var path = require("path");
   var child = require("child_process");
+  var ffprobeBin = isWindows ? "ffprobe.exe" : "ffprobe";
 
+  // Try system PATH lookup
   try {
-    var result = child.execSync("where ffmpeg", { timeout: 5000, encoding: "utf-8" });
+    var whichCmd = isWindows ? "where ffmpeg" : "which ffmpeg";
+    var result = child.execSync(whichCmd, { timeout: 5000, encoding: "utf-8" });
     var lines = result.trim().split("\n");
     if (lines[0] && fs.existsSync(lines[0].trim())) {
       ffmpegPath = lines[0].trim();
-      ffprobePath = path.join(path.dirname(ffmpegPath), "ffprobe.exe");
+      ffprobePath = path.join(path.dirname(ffmpegPath), ffprobeBin);
       if (!fs.existsSync(ffprobePath)) ffprobePath = null;
       return ffmpegPath;
     }
   } catch (e) {}
 
-  var localAppData = process.env.LOCALAPPDATA || "";
-  var userProfile = process.env.USERPROFILE || "";
-  var locations = [
-    "C:\\ffmpeg\\bin\\ffmpeg.exe",
-    "C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe",
-    "C:\\Program Files (x86)\\ffmpeg\\bin\\ffmpeg.exe",
-    path.join(localAppData, "ffmpeg", "bin", "ffmpeg.exe"),
-    path.join(userProfile, "ffmpeg", "bin", "ffmpeg.exe"),
-    path.join(userProfile, "scoop", "shims", "ffmpeg.exe")
-  ];
+  var locations = [];
 
-  try {
-    var wingetPkgs = path.join(localAppData, "Microsoft", "WinGet", "Packages");
-    if (fs.existsSync(wingetPkgs)) {
-      var pkgDirs = fs.readdirSync(wingetPkgs);
-      for (var w = 0; w < pkgDirs.length; w++) {
-        if (pkgDirs[w].toLowerCase().indexOf("ffmpeg") >= 0) {
-          var pkgDir = path.join(wingetPkgs, pkgDirs[w]);
-          var subDirs = fs.readdirSync(pkgDir);
-          for (var s = 0; s < subDirs.length; s++) {
-            var binPath = path.join(pkgDir, subDirs[s], "bin", "ffmpeg.exe");
-            if (fs.existsSync(binPath)) {
-              locations.unshift(binPath);
+  if (isWindows) {
+    var localAppData = process.env.LOCALAPPDATA || "";
+    var userProfile = process.env.USERPROFILE || "";
+    locations = [
+      "C:\\ffmpeg\\bin\\ffmpeg.exe",
+      "C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe",
+      "C:\\Program Files (x86)\\ffmpeg\\bin\\ffmpeg.exe",
+      path.join(localAppData, "ffmpeg", "bin", "ffmpeg.exe"),
+      path.join(userProfile, "ffmpeg", "bin", "ffmpeg.exe"),
+      path.join(userProfile, "scoop", "shims", "ffmpeg.exe")
+    ];
+
+    // Search WinGet packages
+    try {
+      var wingetPkgs = path.join(localAppData, "Microsoft", "WinGet", "Packages");
+      if (fs.existsSync(wingetPkgs)) {
+        var pkgDirs = fs.readdirSync(wingetPkgs);
+        for (var w = 0; w < pkgDirs.length; w++) {
+          if (pkgDirs[w].toLowerCase().indexOf("ffmpeg") >= 0) {
+            var pkgDir = path.join(wingetPkgs, pkgDirs[w]);
+            var subDirs = fs.readdirSync(pkgDir);
+            for (var s = 0; s < subDirs.length; s++) {
+              var binPath = path.join(pkgDir, subDirs[s], "bin", "ffmpeg.exe");
+              if (fs.existsSync(binPath)) {
+                locations.unshift(binPath);
+              }
             }
           }
         }
       }
-    }
-  } catch (e) {}
+    } catch (e) {}
+  } else {
+    // macOS / Linux common locations
+    locations = [
+      "/usr/local/bin/ffmpeg",
+      "/opt/homebrew/bin/ffmpeg",
+      "/usr/bin/ffmpeg",
+      "/opt/local/bin/ffmpeg"
+    ];
+  }
 
   for (var i = 0; i < locations.length; i++) {
     if (locations[i] && fs.existsSync(locations[i])) {
       ffmpegPath = locations[i];
-      ffprobePath = locations[i].replace("ffmpeg.exe", "ffprobe.exe");
+      ffprobePath = path.join(path.dirname(ffmpegPath), ffprobeBin);
       if (!fs.existsSync(ffprobePath)) ffprobePath = null;
       return ffmpegPath;
     }

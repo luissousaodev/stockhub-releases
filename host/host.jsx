@@ -3,7 +3,8 @@
 
 // Recursively search all project items for a file by its media path
 function findProjectItemByPath(parentItem, filePath) {
-    var normalizedPath = filePath.replace(/\//g, "\\").toLowerCase();
+    // Normalize separators to forward slash for cross-platform comparison
+    var normalizedPath = filePath.replace(/\\/g, "/").toLowerCase();
 
     for (var i = 0; i < parentItem.children.numItems; i++) {
         var child = parentItem.children[i];
@@ -16,7 +17,7 @@ function findProjectItemByPath(parentItem, filePath) {
             // Compare media path
             try {
                 var mediaPath = child.getMediaPath();
-                if (mediaPath && mediaPath.replace(/\//g, "\\").toLowerCase() === normalizedPath) {
+                if (mediaPath && mediaPath.replace(/\\/g, "/").toLowerCase() === normalizedPath) {
                     return child;
                 }
             } catch (e) {

@@ -24,7 +24,7 @@ Painel para Adobe Premiere Pro que centraliza seus assets de stock (videos, imag
 |---|---|
 | Adobe Premiere Pro | 22.0 ou superior (2022+) |
 | Adobe CEP Runtime | 12.0 |
-| Sistema operacional | Windows 10/11 |
+| Sistema operacional | Windows 10/11 ou macOS 10.15+ |
 
 > O painel usa Node.js embutido no CEP para leitura de arquivos. Nao e necessario instalar Node.js separadamente.
 
@@ -35,17 +35,28 @@ Painel para Adobe Premiere Pro que centraliza seus assets de stock (videos, imag
 1. **Baixe ou clone** este repositorio
 2. **Copie a pasta `StockHub`** para o diretorio de extensoes CEP:
 
+   **Windows:**
    ```
    C:\Program Files (x86)\Common Files\Adobe\CEP\extensions\StockHub
    ```
 
+   **macOS:**
+   ```
+   /Library/Application Support/Adobe/CEP/extensions/StockHub
+   ```
+
 3. **Habilite extensoes nao assinadas** (apenas na primeira vez):
 
-   Abra o Editor de Registro (`regedit`) e navegue ate:
+   **Windows:** Abra o Editor de Registro (`regedit`) e navegue ate:
    ```
    HKEY_CURRENT_USER\SOFTWARE\Adobe\CSXS.12
    ```
    Crie ou edite o valor `PlayerDebugMode` como **String** com valor `1`.
+
+   **macOS:** Execute no Terminal:
+   ```
+   defaults write com.adobe.CSXS.12 PlayerDebugMode 1
+   ```
 
 4. **Reinicie o Premiere Pro**
 
