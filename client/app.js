@@ -629,12 +629,17 @@ var hoverTimer = null;
 
 function onMouseEnter(el, fileIndex) {
   var file = state.files[fileIndex];
-  if (!file || file.type !== "video") return;
+  if (!file || (file.type !== "video" && file.type !== "audio")) return;
 
   // Small delay to avoid triggering on quick mouse passes
   clearTimeout(hoverTimer);
   hoverTimer = setTimeout(function() {
     if (!el.matches(":hover")) return;
+
+    if (file.type === "audio") {
+      createPreviewAudio(el, "file:///" + file.path.replace(/\\/g, "/"));
+      return;
+    }
 
     var ext = file.ext.toLowerCase();
     var needsProxy = (ext === "mov" || ext === "mxf" || ext === "avi" || ext === "mkv");
@@ -678,6 +683,33 @@ function createPreviewVideo(el, src) {
   video.src = src;
 }
 
+function createPreviewAudio(el, src) {
+  cleanupPreview();
+  var audio = document.createElement("audio");
+  audio.preload = "auto";
+  audio.loop = true;
+  audio.onerror = function() { audio.remove(); activePreview = null; };
+  activePreview = { el: el, audio: audio };
+
+  // Visual feedback: add playing indicator
+  var indicator = document.createElement("div");
+  indicator.className = "audio-playing-indicator";
+  indicator.innerHTML =
+    '<div class="audio-bar"></div>' +
+    '<div class="audio-bar"></div>' +
+    '<div class="audio-bar"></div>' +
+    '<div class="audio-bar"></div>';
+  el.appendChild(indicator);
+  activePreview.indicator = indicator;
+
+  audio.oncanplay = function() {
+    audio.oncanplay = null;
+    if (!el.matches(":hover")) { cleanupPreview(); return; }
+    audio.play().catch(function() {});
+  };
+  audio.src = src;
+}
+
 function onMouseLeave(el) {
   clearTimeout(hoverTimer);
   cleanupPreview();
@@ -685,11 +717,12 @@ function onMouseLeave(el) {
 
 function cleanupPreview() {
   if (activePreview) {
-    var v = activePreview.video;
-    v.pause();
-    v.removeAttribute("src");
-    v.load(); // Release memory
-    v.remove();
+    var media = activePreview.video || activePreview.audio;
+    media.pause();
+    media.removeAttribute("src");
+    media.load();
+    media.remove();
+    if (activePreview.indicator) activePreview.indicator.remove();
     activePreview = null;
   }
 }
