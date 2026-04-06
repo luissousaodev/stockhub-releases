@@ -214,6 +214,27 @@ html, body {
 
 .cat-item.active .cat-count { background: var(--accent-subtle); color: var(--accent); }
 
+.cat-sub {
+  padding-left: 28px;
+  font-size: 10px;
+  opacity: 0.85;
+}
+
+.cat-sub:hover { opacity: 1; }
+.cat-sub.active { opacity: 1; }
+
+.cat-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  transition: transform 0.15s;
+  flex-shrink: 0;
+}
+
+.cat-arrow.expanded { transform: rotate(90deg); }
+
 /* --- Grid --- */
 .grid-container {
   flex: 1;

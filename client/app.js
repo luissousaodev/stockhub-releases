@@ -76,27 +76,79 @@ function openStockFolder() {
 function changeStockFolder() {
   var child = require("child_process");
   if (isWindows) {
-    var psLines = [
+    var fs = require("fs");
+    var path = require("path");
+    var os = require("os");
+    var psFile = path.join(os.tmpdir(), "stockhub_folder_picker.ps1");
+    var psContent = [
       'Add-Type -AssemblyName System.Windows.Forms',
-      '$top = New-Object System.Windows.Forms.Form',
-      '$top.TopMost = $true',
-      '$top.Width = 0',
-      '$top.Height = 0',
-      '$top.StartPosition = "Manual"',
-      '$top.Location = New-Object System.Drawing.Point(-1000,-1000)',
-      '$top.Show()',
-      '$f = New-Object System.Windows.Forms.OpenFileDialog',
-      '$f.Title = "Selecionar pasta de assets"',
-      '$f.CheckFileExists = $false',
-      '$f.CheckPathExists = $true',
-      '$f.FileName = "Selecionar esta pasta"',
-      '$f.Filter = "Pastas|*.---"',
-      '$f.ValidateNames = $false',
-      'if ($f.ShowDialog($top) -eq "OK") { [System.IO.Path]::GetDirectoryName($f.FileName) } else { "" }',
-      '$top.Close()',
-    ];
-    var psScript = psLines.join("; ");
-    child.exec('powershell -Command "' + psScript.replace(/"/g, '\\"') + '"', function(err, stdout) {
+      '',
+      '$source = @"',
+      'using System;',
+      'using System.Runtime.InteropServices;',
+      'using System.Windows.Forms;',
+      '',
+      '[ComImport, Guid("DC1C5A9C-E88A-4dde-A5A1-60F82A20AEF7")]',
+      'class FileOpenDialogRCW {}',
+      '',
+      '[ComImport, Guid("d57c7288-d4ad-4768-be02-9d969532d960"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
+      'interface IFileOpenDialog {',
+      '    [PreserveSig] int Show(IntPtr hwndOwner);',
+      '    void SetFileTypes(); void SetFileTypeIndex(); void GetFileTypeIndex();',
+      '    void Advise(); void Unadvise();',
+      '    void SetOptions(uint fos); void GetOptions(out uint pfos);',
+      '    void SetDefaultFolder(IShellItem psi); void SetFolder(IShellItem psi);',
+      '    void GetFolder(out IShellItem ppsi); void GetCurrentSelection(out IShellItem ppsi);',
+      '    void SetFileName([MarshalAs(UnmanagedType.LPWStr)] string pszName);',
+      '    void GetFileName([MarshalAs(UnmanagedType.LPWStr)] out string pszName);',
+      '    void SetTitle([MarshalAs(UnmanagedType.LPWStr)] string pszTitle);',
+      '    void SetOkButtonLabel([MarshalAs(UnmanagedType.LPWStr)] string pszText);',
+      '    void SetFileNameLabel([MarshalAs(UnmanagedType.LPWStr)] string pszLabel);',
+      '    void GetResult(out IShellItem ppsi);',
+      '    void AddPlace(IShellItem psi, int alignment);',
+      '    void SetDefaultExtension([MarshalAs(UnmanagedType.LPWStr)] string pszDefaultExtension);',
+      '    void Close(int hr); void SetClientGuid(ref Guid guid);',
+      '    void ClearClientData(); void SetFilter(IntPtr pFilter);',
+      '}',
+      '',
+      '[ComImport, Guid("43826d1e-e718-42ee-bc55-a1e261c37bfe"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
+      'interface IShellItem {',
+      '    void BindToHandler(); void GetParent();',
+      '    [PreserveSig] int GetDisplayName(uint sigdnName, [MarshalAs(UnmanagedType.LPWStr)] out string ppszName);',
+      '    void GetAttributes(); void Compare();',
+      '}',
+      '',
+      'public class FolderPicker {',
+      '    public static string Show(IntPtr hwnd) {',
+      '        var dlg = (IFileOpenDialog)new FileOpenDialogRCW();',
+      '        dlg.SetTitle("Selecionar pasta de assets");',
+      '        dlg.SetOkButtonLabel("Selecionar pasta");',
+      '        uint opts; dlg.GetOptions(out opts);',
+      '        dlg.SetOptions(opts | 0x20);',
+      '        if (dlg.Show(hwnd) != 0) return "";',
+      '        IShellItem item; dlg.GetResult(out item);',
+      '        string path; item.GetDisplayName(0x80058000, out path);',
+      '        return path;',
+      '    }',
+      '}',
+      '"@',
+      '',
+      'Add-Type -TypeDefinition $source -ReferencedAssemblies System.Windows.Forms',
+      '',
+      '$form = New-Object System.Windows.Forms.Form',
+      '$form.TopMost = $true',
+      '$form.Width = 0',
+      '$form.Height = 0',
+      '$form.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual',
+      '$form.Location = New-Object System.Drawing.Point(-1000,-1000)',
+      '$form.Show()',
+      '$result = [FolderPicker]::Show($form.Handle)',
+      '$form.Close()',
+      'if ($result) { $result }',
+    ].join("\n");
+    fs.writeFileSync(psFile, psContent, "utf-8");
+    child.exec('powershell -ExecutionPolicy Bypass -File "' + psFile + '"', function(err, stdout, stderr) {
+      try { fs.unlinkSync(psFile); } catch(e) {}
       var result = stdout ? stdout.trim() : "";
       if (!err && result) {
         showAutoCategoryModal(result);
@@ -241,7 +293,7 @@ function scanFolder(folderPath) {
       return files;
     }
 
-    function walk(dir, category, isRoot) {
+    function walk(dir, category, depth, parentCatId) {
       var items;
       try {
         items = fs.readdirSync(dir);
@@ -262,16 +314,20 @@ function scanFolder(folderPath) {
         if (stat.isDirectory()) {
           if (item.charAt(0) === "." || item === "stockhub-data") continue;
           var catId = item.toLowerCase().replace(/[^a-z0-9]/g, "-");
-          if (isRoot && state.autoCategories) {
+          if (depth === 1 && parentCatId) catId = parentCatId + "/" + catId;
+          if (depth <= 1 && state.autoCategories) {
             var exists = false;
             for (var j = 0; j < state.categories.length; j++) {
               if (state.categories[j].id === catId) { exists = true; break; }
             }
             if (!exists && state.deletedCategoryIds.indexOf(catId) === -1) {
-              state.categories.push({ id: catId, name: item, color: getRandomColor() });
+              var catObj = { id: catId, name: item, color: getRandomColor() };
+              if (depth === 1) catObj.parent = parentCatId;
+              state.categories.push(catObj);
             }
           }
-          walk(fullPath, catId, false);
+          var nextParent = (depth === 0) ? catId : parentCatId;
+          walk(fullPath, catId, depth + 1, nextParent);
         } else {
           var ext = path.extname(item).toLowerCase();
           if (ALL_EXTENSIONS.indexOf(ext) >= 0) {
@@ -289,7 +345,7 @@ function scanFolder(folderPath) {
       }
     }
 
-    walk(folderPath, null, true);
+    walk(folderPath, null, 0, null);
   } catch (e) {
     console.error("Scan error:", e);
   }
@@ -803,7 +859,16 @@ function onDoubleClick(fileIndex) {
 function getFilteredFiles() {
   return state.files.filter(function(f) {
     if (state.activeFormat !== "all" && f.type !== state.activeFormat) return false;
-    if (state.activeCategory !== "all" && f.category !== state.activeCategory) return false;
+    if (state.activeCategory !== "all") {
+      if (f.category !== state.activeCategory) {
+        // Se a categoria ativa é pai, inclui arquivos das subcategorias
+        if (f.category && f.category.indexOf(state.activeCategory + "/") === 0) {
+          // match — subcategoria do pai ativo
+        } else {
+          return false;
+        }
+      }
+    }
     if (state.searchQuery) {
       return f.name.toLowerCase().indexOf(state.searchQuery.toLowerCase()) >= 0;
     }
@@ -824,6 +889,16 @@ function setFormat(format, btn) {
 
 function setCategory(catId) {
   state.activeCategory = catId;
+  // Auto-expand parent when selecting it or a subcategory
+  var cat = null;
+  for (var i = 0; i < state.categories.length; i++) {
+    if (state.categories[i].id === catId) { cat = state.categories[i]; break; }
+  }
+  if (cat && !cat.parent && !cat.system) {
+    state.expandedCategories[catId] = true;
+  } else if (cat && cat.parent) {
+    state.expandedCategories[cat.parent] = true;
+  }
   renderCategories();
   renderGrid();
 }
@@ -980,12 +1055,15 @@ function showContextMenu(e, fileIndex) {
   menu.appendChild(header);
 
   state.categories.forEach(function(cat) {
+    var isSub = !!cat.parent;
     var item = document.createElement("div");
     item.style.cssText =
-      "padding:5px 12px;font-size:11px;cursor:pointer;" +
+      "padding:5px " + (isSub ? "12px 5px 24px" : "12px") + ";font-size:" + (isSub ? "10" : "11") + "px;cursor:pointer;" +
       "color:" + (file.category === cat.id ? "var(--accent)" : "var(--text-primary)") + ";" +
+      (isSub ? "opacity:0.8;" : "") +
       "display:flex;align-items:center;gap:6px;";
-    item.innerHTML = '<span style="width:8px;height:8px;border-radius:2px;background:' + cat.color + ';flex-shrink:0;"></span>' + cat.name;
+    var dotSize = isSub ? 6 : 8;
+    item.innerHTML = '<span style="width:' + dotSize + 'px;height:' + dotSize + 'px;border-radius:2px;background:' + cat.color + ';flex-shrink:0;"></span>' + cat.name;
     item.onmouseover = function() { item.style.background = "var(--bg-hover)"; };
     item.onmouseout = function() { item.style.background = "transparent"; };
     item.onclick = function() {
@@ -1006,24 +1084,88 @@ function showContextMenu(e, fileIndex) {
 }
 
 // --- Render ---
+if (!state.expandedCategories) state.expandedCategories = {};
+
+function getCatFileCount(catId, isSystem) {
+  if (isSystem) return state.files.length;
+  return state.files.filter(function(f) {
+    return f.category === catId || (f.category && f.category.indexOf(catId + "/") === 0);
+  }).length;
+}
+
+function toggleCategoryExpand(catId, e) {
+  e.stopPropagation();
+  state.expandedCategories[catId] = !state.expandedCategories[catId];
+  renderCategories();
+}
+
 function renderCategories() {
   var list = document.getElementById("categoryList");
-  list.innerHTML = state.categories.map(function(cat) {
-    var count = cat.system
-      ? state.files.length
-      : state.files.filter(function(f) { return f.category === cat.id; }).length;
-    return '<div class="cat-item ' + (state.activeCategory === cat.id ? "active" : "") + '" ' +
+  var html = "";
+
+  // Separate parent categories and subcategories
+  var parents = [];
+  var childrenMap = {};
+  for (var i = 0; i < state.categories.length; i++) {
+    var cat = state.categories[i];
+    if (cat.parent) {
+      if (!childrenMap[cat.parent]) childrenMap[cat.parent] = [];
+      childrenMap[cat.parent].push(cat);
+    } else {
+      parents.push(cat);
+    }
+  }
+
+  for (var p = 0; p < parents.length; p++) {
+    var cat = parents[p];
+    var children = childrenMap[cat.id] || [];
+    var hasChildren = children.length > 0;
+    var isExpanded = state.expandedCategories[cat.id];
+    var count = getCatFileCount(cat.id, cat.system);
+
+    var arrow = '';
+    if (hasChildren && !cat.system) {
+      arrow = '<span class="cat-arrow ' + (isExpanded ? "expanded" : "") + '" ' +
+        'onclick="toggleCategoryExpand(\'' + cat.id + '\', event)">' +
+        '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">' +
+          '<polyline points="9 18 15 12 9 6"/>' +
+        '</svg></span>';
+    }
+
+    html += '<div class="cat-item ' + (state.activeCategory === cat.id ? "active" : "") + '" ' +
       'onclick="setCategory(\'' + cat.id + '\')" ' +
       'ondragover="onCatDragOver(event)" ' +
       'ondragleave="onCatDragLeave(event)" ' +
       'ondrop="onCatDrop(event, \'' + cat.id + '\')">' +
       '<span style="display:flex;align-items:center;gap:6px;">' +
+        arrow +
         '<span style="width:8px;height:8px;border-radius:2px;background:' + cat.color + ';flex-shrink:0;"></span>' +
         cat.name +
       '</span>' +
       '<span class="cat-count">' + count + '</span>' +
     '</div>';
-  }).join("");
+
+    // Render subcategories if expanded
+    if (hasChildren && isExpanded) {
+      for (var c = 0; c < children.length; c++) {
+        var sub = children[c];
+        var subCount = state.files.filter(function(f) { return f.category === sub.id; }).length;
+        html += '<div class="cat-item cat-sub ' + (state.activeCategory === sub.id ? "active" : "") + '" ' +
+          'onclick="setCategory(\'' + sub.id + '\')" ' +
+          'ondragover="onCatDragOver(event)" ' +
+          'ondragleave="onCatDragLeave(event)" ' +
+          'ondrop="onCatDrop(event, \'' + sub.id + '\')">' +
+          '<span style="display:flex;align-items:center;gap:6px;">' +
+            '<span style="width:6px;height:6px;border-radius:2px;background:' + cat.color + ';opacity:0.5;flex-shrink:0;"></span>' +
+            sub.name +
+          '</span>' +
+          '<span class="cat-count">' + subCount + '</span>' +
+        '</div>';
+      }
+    }
+  }
+
+  list.innerHTML = html;
 }
 
 function renderGrid() {
@@ -1135,14 +1277,31 @@ var selectedCategories = {};
 
 function renderCatEditList() {
   var list = document.getElementById("catEditList");
-  list.innerHTML = state.categories.filter(function(c) { return !c.system; }).map(function(cat) {
+  var nonSystem = state.categories.filter(function(c) { return !c.system; });
+  // Sort: parents first, then children grouped under parent
+  var parents = nonSystem.filter(function(c) { return !c.parent; });
+  var html = "";
+  for (var p = 0; p < parents.length; p++) {
+    var cat = parents[p];
     var checked = selectedCategories[cat.id] ? "checked" : "";
-    return '<div class="cat-edit-row">' +
+    html += '<div class="cat-edit-row">' +
       '<input type="checkbox" class="cat-checkbox" data-catid="' + cat.id + '" ' + checked + ' onchange="toggleCatSelection(\'' + cat.id + '\', this.checked)">' +
       '<span class="cat-color" style="background:' + cat.color + '" onclick="cycleCatColor(\'' + cat.id + '\')"></span>' +
       '<input value="' + cat.name + '" onblur="renameCategory(\'' + cat.id + '\', this.value)" onkeydown="if(event.key===\'Enter\')this.blur()">' +
     '</div>';
-  }).join("");
+    // Children of this parent
+    var children = nonSystem.filter(function(c) { return c.parent === cat.id; });
+    for (var c = 0; c < children.length; c++) {
+      var sub = children[c];
+      var subChecked = selectedCategories[sub.id] ? "checked" : "";
+      html += '<div class="cat-edit-row" style="padding-left:20px;opacity:0.8;">' +
+        '<input type="checkbox" class="cat-checkbox" data-catid="' + sub.id + '" ' + subChecked + ' onchange="toggleCatSelection(\'' + sub.id + '\', this.checked)">' +
+        '<span class="cat-color" style="background:' + cat.color + ';opacity:0.6;width:10px;height:10px;" onclick="cycleCatColor(\'' + sub.id + '\')"></span>' +
+        '<input value="' + sub.name + '" onblur="renameCategory(\'' + sub.id + '\', this.value)" onkeydown="if(event.key===\'Enter\')this.blur()" style="font-size:10px;">' +
+      '</div>';
+    }
+  }
+  list.innerHTML = html;
   updateSelectAllBtn();
 }
 
