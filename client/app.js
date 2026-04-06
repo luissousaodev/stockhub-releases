@@ -117,7 +117,10 @@ function applyFolderChange(folderPath, autoCategories) {
   closeModal();
   state.customFolder = folderPath;
   state.autoCategories = autoCategories;
-  if (autoCategories) state.deletedCategoryIds = [];
+  state.categories = state.categories.filter(function(c) { return c.system; });
+  state.fileCategories = {};
+  state.deletedCategoryIds = [];
+  state.activeCategory = "all";
   saveState();
   ensureStockFolder();
   thumbLookupCache = {};
@@ -131,6 +134,10 @@ function applyFolderChange(folderPath, autoCategories) {
 
 function resetStockFolder() {
   state.customFolder = null;
+  state.categories = state.categories.filter(function(c) { return c.system; });
+  state.fileCategories = {};
+  state.deletedCategoryIds = [];
+  state.activeCategory = "all";
   saveState();
   ensureStockFolder();
   thumbLookupCache = {};
@@ -219,7 +226,7 @@ function scanFolder(folderPath) {
       return files;
     }
 
-    function walk(dir, category) {
+    function walk(dir, category, isRoot) {
       var items;
       try {
         items = fs.readdirSync(dir);
@@ -238,9 +245,9 @@ function scanFolder(folderPath) {
         }
 
         if (stat.isDirectory()) {
-          if (item.charAt(0) === ".") continue;
+          if (item.charAt(0) === "." || item === "stockhub-data") continue;
           var catId = item.toLowerCase().replace(/[^a-z0-9]/g, "-");
-          if (state.autoCategories) {
+          if (isRoot && state.autoCategories) {
             var exists = false;
             for (var j = 0; j < state.categories.length; j++) {
               if (state.categories[j].id === catId) { exists = true; break; }
@@ -249,7 +256,7 @@ function scanFolder(folderPath) {
               state.categories.push({ id: catId, name: item, color: getRandomColor() });
             }
           }
-          walk(fullPath, catId);
+          walk(fullPath, catId, false);
         } else {
           var ext = path.extname(item).toLowerCase();
           if (ALL_EXTENSIONS.indexOf(ext) >= 0) {
@@ -267,7 +274,7 @@ function scanFolder(folderPath) {
       }
     }
 
-    walk(folderPath, null);
+    walk(folderPath, null, true);
   } catch (e) {
     console.error("Scan error:", e);
   }
