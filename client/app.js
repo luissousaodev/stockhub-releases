@@ -76,16 +76,26 @@ function openStockFolder() {
 function changeStockFolder() {
   var child = require("child_process");
   if (isWindows) {
-    var psScript =
-      'Add-Type -AssemblyName System.Windows.Forms; ' +
-      '$f = New-Object System.Windows.Forms.OpenFileDialog; ' +
-      '$f.Title = "Selecionar pasta de assets"; ' +
-      '$f.CheckFileExists = $false; ' +
-      '$f.CheckPathExists = $true; ' +
-      '$f.FileName = "Selecionar pasta"; ' +
-      '$f.Filter = "Pasta|*.none"; ' +
-      '$f.InitialDirectory = [Environment]::GetFolderPath("Desktop"); ' +
-      'if ($f.ShowDialog() -eq "OK") { [System.IO.Path]::GetDirectoryName($f.FileName) } else { "" }';
+    var psLines = [
+      'Add-Type -AssemblyName System.Windows.Forms',
+      '$top = New-Object System.Windows.Forms.Form',
+      '$top.TopMost = $true',
+      '$top.Width = 0',
+      '$top.Height = 0',
+      '$top.StartPosition = "Manual"',
+      '$top.Location = New-Object System.Drawing.Point(-1000,-1000)',
+      '$top.Show()',
+      '$f = New-Object System.Windows.Forms.OpenFileDialog',
+      '$f.Title = "Selecionar pasta de assets"',
+      '$f.CheckFileExists = $false',
+      '$f.CheckPathExists = $true',
+      '$f.FileName = "Selecionar esta pasta"',
+      '$f.Filter = "Pastas|*.---"',
+      '$f.ValidateNames = $false',
+      'if ($f.ShowDialog($top) -eq "OK") { [System.IO.Path]::GetDirectoryName($f.FileName) } else { "" }',
+      '$top.Close()',
+    ];
+    var psScript = psLines.join("; ");
     child.exec('powershell -Command "' + psScript.replace(/"/g, '\\"') + '"', function(err, stdout) {
       var result = stdout ? stdout.trim() : "";
       if (!err && result) {
@@ -93,7 +103,7 @@ function changeStockFolder() {
       }
     });
   } else {
-    var appleScript = 'osascript -e \'tell application "SystemUIServer" to set folderPath to POSIX path of (choose folder with prompt "Selecionar pasta de assets")\'';
+    var appleScript = "osascript -e 'tell application \"System Events\"' -e 'activate' -e 'set folderPath to POSIX path of (choose folder with prompt \"Selecionar pasta de assets\")' -e 'end tell'";
     child.exec(appleScript, function(err, stdout) {
       var result = stdout ? stdout.trim() : "";
       if (!err && result) {

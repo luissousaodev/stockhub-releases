@@ -6,9 +6,9 @@ Painel para Adobe Premiere Pro que centraliza seus assets de stock (videos, imag
 
 ## Funcionalidades
 
-- **Biblioteca visual em grid** — miniaturas de video, imagem e audio com preview ao passar o mouse
+- **Biblioteca visual em grid** — miniaturas de video e imagem com preview visual ao passar o mouse; arquivos de audio tocam um preview sonoro com indicador animado
 - **Categorias customizaveis** — crie, renomeie, recolore e exclua categorias; arraste arquivos entre elas pelo menu de contexto
-- **Pasta de assets configuravel** — escolha qualquer pasta no seu sistema; a escolha persiste entre sessoes
+- **Pasta de assets configuravel** — escolha qualquer pasta no seu sistema usando o explorador de arquivos nativo (Windows e macOS); a escolha persiste entre sessoes
 - **Auto-categorias por subpastas** — ao importar uma nova pasta, subpastas podem virar categorias automaticamente
 - **Busca e filtros por formato** — filtre por Todos, Video, Audio, Imagem ou MOGRT
 - **Importar para o projeto** — botao de importacao envia o arquivo ao bin `StockHub` no painel de projeto
@@ -107,11 +107,11 @@ Biblioteca oficial da Adobe para comunicacao entre o painel CEP e o host (Premie
 
 ### Pasta de assets
 
-Por padrao, o StockHub usa `%USERPROFILE%\StockHub`. Para usar outra pasta:
+Por padrao, o StockHub usa `~/StockHub` (`%USERPROFILE%\StockHub` no Windows, `~/StockHub` no macOS). Para usar outra pasta:
 
 1. Clique no icone de configuracoes (engrenagem) no canto superior direito
 2. Na secao **Pasta de Assets**, clique em **Alterar pasta**
-3. Selecione a pasta desejada na janela do sistema
+3. Selecione a pasta desejada no explorador de arquivos (abre sobre todas as janelas)
 4. Escolha se deseja criar categorias automaticamente a partir das subpastas
 5. Clique em **Salvar e voltar**
 
@@ -138,8 +138,14 @@ Para voltar a pasta padrao, clique em **Restaurar pasta padrao**.
 
 As configuracoes sao salvas em:
 
+**Windows:**
 ```
-%APPDATA%\StockHub\stockhub-data.json
+%APPDATA%\Adobe\CEP\extensions\StockHub\stockhub-data.json
+```
+
+**macOS:**
+```
+~/Library/Application Support/Adobe/CEP/extensions/StockHub/stockhub-data.json
 ```
 
 O arquivo armazena categorias, pasta customizada, categoria de cada arquivo, tamanho do grid e IDs de categorias deletadas (para evitar que subpastas as recriem automaticamente).
