@@ -107,82 +107,84 @@
       </div>
 
       <!-- Settings Panel -->
-      <div class="settings-panel" id="settingsPanel" style="display:none; width:100%;">
+      <div class="settings-panel" id="settingsPanel" style="display:none; width:100%; flex-direction:column; height:100%;">
 
-        <div class="settings-columns">
-          <!-- Column: Pasta -->
-          <div class="settings-section settings-col">
-            <div class="settings-section-title">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
-              </svg>
-              Pasta de Assets
-            </div>
-            <div class="settings-card" style="flex:1;">
-              <div id="stockFolderPath" class="folder-path-display"></div>
-              <div class="settings-row" style="gap:6px;">
-                <button class="btn" onclick="changeStockFolder()" style="flex:1;">
+        <div style="flex:1; overflow-y:auto; min-height:0;">
+          <div class="settings-columns">
+            <!-- Column: Pasta -->
+            <div class="settings-section settings-col">
+              <div class="settings-section-title">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+                </svg>
+                Pasta de Assets
+              </div>
+              <div class="settings-card" style="flex:1;">
+                <div id="stockFolderPath" class="folder-path-display"></div>
+                <div class="settings-row" style="gap:6px;">
+                  <button class="btn" onclick="changeStockFolder()" style="flex:1;">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+                      <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                    </svg>
+                    Alterar pasta
+                  </button>
+                  <button class="btn" onclick="openStockFolder()" style="flex:1;">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/>
+                      <polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+                    </svg>
+                    Abrir no Explorer
+                  </button>
+                </div>
+                <button class="btn" onclick="resetStockFolder()" style="width:100%;margin-top:4px;">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
-                    <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                    <polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/>
                   </svg>
-                  Alterar pasta
+                  Restaurar pasta padrao
                 </button>
-                <button class="btn" onclick="openStockFolder()" style="flex:1;">
+                <p class="settings-hint">Subpastas viram categorias automaticamente.</p>
+              </div>
+            </div>
+
+            <!-- Column: Categorias -->
+            <div class="settings-section settings-col">
+              <div class="settings-section-title">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
+                  <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
+                </svg>
+                Categorias
+              </div>
+              <div class="settings-card" style="flex:1;display:flex;flex-direction:column;">
+                <div class="cat-edit-actions" style="display:flex;gap:4px;margin-bottom:6px;">
+                  <button class="btn" onclick="toggleSelectAllCategories()" id="selectAllCatsBtn" style="flex:1;font-size:10px;">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                      <polyline points="20 6 9 17 4 12"/>
+                    </svg>
+                    Selecionar todas
+                  </button>
+                  <button class="btn danger" onclick="removeSelectedCategories()" style="flex:1;font-size:10px;">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+                    </svg>
+                    Excluir selecionadas
+                  </button>
+                </div>
+                <div class="cat-edit-list" id="catEditList" style="flex:1;overflow-y:auto;"></div>
+                <button class="btn" onclick="showAddCategoryModal()" style="margin-top:8px;width:100%;">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/>
-                    <polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+                    <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
                   </svg>
-                  Abrir no Explorer
+                  Adicionar categoria
                 </button>
               </div>
-              <button class="btn" onclick="resetStockFolder()" style="width:100%;margin-top:4px;">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/>
-                </svg>
-                Restaurar pasta padrao
-              </button>
-              <p class="settings-hint">Subpastas viram categorias automaticamente.</p>
-            </div>
-          </div>
-
-          <!-- Column: Categorias -->
-          <div class="settings-section settings-col">
-            <div class="settings-section-title">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
-                <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
-              </svg>
-              Categorias
-            </div>
-            <div class="settings-card" style="flex:1;display:flex;flex-direction:column;">
-              <div class="cat-edit-actions" style="display:flex;gap:4px;margin-bottom:6px;">
-                <button class="btn" onclick="toggleSelectAllCategories()" id="selectAllCatsBtn" style="flex:1;font-size:10px;">
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                    <polyline points="20 6 9 17 4 12"/>
-                  </svg>
-                  Selecionar todas
-                </button>
-                <button class="btn danger" onclick="removeSelectedCategories()" style="flex:1;font-size:10px;">
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
-                  </svg>
-                  Excluir selecionadas
-                </button>
-              </div>
-              <div class="cat-edit-list" id="catEditList" style="flex:1;overflow-y:auto;"></div>
-              <button class="btn" onclick="showAddCategoryModal()" style="margin-top:8px;width:100%;">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-                </svg>
-                Adicionar categoria
-              </button>
             </div>
           </div>
         </div>
 
-        <!-- Section: Voltar -->
-        <div class="settings-section" style="margin-top:12px;">
+        <!-- Section: Voltar (fixo na parte inferior) -->
+        <div class="settings-section" style="flex-shrink:0; padding-top:12px;">
           <button class="btn btn-primary" onclick="saveSettings()" style="width:100%;justify-content:center;padding:8px;">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <polyline points="20 6 9 17 4 12"/>

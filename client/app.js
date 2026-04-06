@@ -799,7 +799,7 @@ function toggleSettings() {
 
   if (state.showSettings) {
     if (metricsState.visible) toggleMetrics();
-    settingsPanel.style.display = "block";
+    settingsPanel.style.display = "flex";
     sidebar.style.display = "none";
     gridContainer.style.display = "none";
     if (gridSlider) gridSlider.style.display = "none";
