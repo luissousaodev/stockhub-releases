@@ -191,10 +191,11 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 10px;
+  padding: 7px 10px;
+  margin: 1px 6px;
   cursor: pointer;
-  transition: background 0.1s;
-  border-left: 2px solid transparent;
+  transition: all 0.15s;
+  border-radius: 6px;
   font-size: 11px;
   color: var(--text-secondary);
 }
@@ -202,42 +203,55 @@ html, body {
 .cat-item:hover { background: var(--bg-hover); color: var(--text-primary); }
 .cat-item.active {
   background: var(--bg-active);
-  color: var(--accent);
-  border-left-color: var(--accent);
+  color: var(--text-primary);
   font-weight: 500;
 }
 
 .cat-count {
   font-size: 10px;
   color: var(--text-muted);
-  background: var(--bg-primary);
-  padding: 1px 5px;
-  border-radius: 8px;
+  padding: 0 2px;
+  min-width: 16px;
+  text-align: right;
+  flex-shrink: 0;
 }
 
-.cat-item.active .cat-count { background: var(--accent-subtle); color: var(--accent); }
+.cat-item.active .cat-count { color: var(--accent); }
+
+/* Subcategories container */
+.cat-sub-group {
+  margin-left: 18px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border);
+  margin-bottom: 2px;
+}
 
 .cat-sub {
-  padding-left: 34px;
+  padding: 5px 8px;
+  margin: 1px 4px 1px 0;
   font-size: 10px;
-  opacity: 0.75;
-  margin-left: 14px;
-  border-left: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: 5px;
 }
 
-.cat-sub:hover { opacity: 1; }
-.cat-sub.active { opacity: 1; border-left-color: var(--accent); }
+.cat-sub:hover { color: var(--text-primary); }
+.cat-sub.active {
+  color: var(--text-primary);
+  background: var(--bg-active);
+}
 
 .cat-arrow {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   transition: transform 0.15s;
   flex-shrink: 0;
+  border-radius: 4px;
 }
 
+.cat-arrow:hover { background: var(--bg-hover); }
 .cat-arrow.expanded { transform: rotate(90deg); }
 
 .sidebar-resize-handle {
@@ -468,7 +482,7 @@ html, body {
 .grid-item:active .drag-overlay { opacity: 0.3; }
 
 .grid-item.dragging { opacity: 0.4; transform: scale(0.95); }
-.cat-item.drag-over { background: var(--accent-subtle); border-left-color: var(--accent); color: var(--accent); }
+.cat-item.drag-over { background: var(--accent-subtle); color: var(--accent); }
 
 /* --- Empty State --- */
 .empty-state {

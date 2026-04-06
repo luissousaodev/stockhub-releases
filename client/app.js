@@ -183,6 +183,9 @@ function showAutoCategoryModal(folderPath) {
 
 function applyFolderChange(folderPath, autoCategories) {
   closeModal();
+  // Fechar configs/métricas e voltar para tela de assets
+  if (state.showSettings) toggleSettings();
+  if (metricsState.visible) toggleMetrics();
   state.customFolder = folderPath;
   state.autoCategories = autoCategories;
   state.categories = state.categories.filter(function(c) { return c.system; });
@@ -194,13 +197,13 @@ function applyFolderChange(folderPath, autoCategories) {
   thumbLookupCache = {};
   thumbCache = {};
   resolutionCache = {};
-  var fp = document.getElementById("stockFolderPath");
-  if (fp) fp.textContent = folderPath;
   refreshFiles();
   showToast("Pasta alterada: " + folderPath);
 }
 
 function resetStockFolder() {
+  if (state.showSettings) toggleSettings();
+  if (metricsState.visible) toggleMetrics();
   state.customFolder = null;
   state.categories = state.categories.filter(function(c) { return c.system; });
   state.fileCategories = {};
@@ -211,8 +214,6 @@ function resetStockFolder() {
   thumbLookupCache = {};
   thumbCache = {};
   resolutionCache = {};
-  var fp = document.getElementById("stockFolderPath");
-  if (fp) fp.textContent = getDefaultStockFolder();
   refreshFiles();
   showToast("Pasta restaurada para padrao: " + getDefaultStockFolder());
 }
@@ -1100,9 +1101,12 @@ function showContextMenu(e, fileIndex) {
   menu.appendChild(divider);
 
   var header = document.createElement("div");
-  header.style.cssText = "padding:6px 12px;font-size:10px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.3px;";
+  header.style.cssText = "padding:6px 12px;font-size:10px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.3px;flex-shrink:0;";
   header.textContent = "Mover para categoria";
   menu.appendChild(header);
+
+  var catList = document.createElement("div");
+  catList.style.cssText = "overflow-y:auto;flex:1;min-height:0;";
 
   state.categories.forEach(function(cat) {
     var isSub = !!cat.parent;
@@ -1124,10 +1128,30 @@ function showContextMenu(e, fileIndex) {
       menu.remove();
       showToast("Movido para: " + cat.name);
     };
-    menu.appendChild(item);
+    catList.appendChild(item);
   });
+  menu.appendChild(catList);
 
   document.body.appendChild(menu);
+
+  // Ajustar posição e tamanho máximo dentro da janela
+  var sliderBar = document.getElementById("gridSliderBar");
+  var bottomLimit = sliderBar ? sliderBar.getBoundingClientRect().top : window.innerHeight;
+  var maxHeight = bottomLimit - e.clientY - 8;
+  if (maxHeight < 150) {
+    // Se pouco espaço abaixo, abrir para cima
+    var topSpace = e.clientY - 8;
+    menu.style.top = "";
+    menu.style.bottom = (window.innerHeight - e.clientY) + "px";
+    maxHeight = topSpace;
+  }
+  menu.style.maxHeight = Math.min(maxHeight, 400) + "px";
+  menu.style.display = "flex";
+  menu.style.flexDirection = "column";
+
+  var rect = menu.getBoundingClientRect();
+  if (rect.right > window.innerWidth) menu.style.left = (window.innerWidth - rect.width - 4) + "px";
+
   var closeCtx = function() { menu.remove(); document.removeEventListener("click", closeCtx); };
   setTimeout(function() { document.addEventListener("click", closeCtx); }, 10);
 }
@@ -1180,10 +1204,13 @@ function renderCatItem(cat, isSub, childrenMap) {
     '<span class="cat-count">' + count + '</span>' +
   '</div>';
 
+  // Subcategories wrapped in a group container with vertical line
   if (hasChildren && isExpanded) {
+    html += '<div class="cat-sub-group">';
     for (var c = 0; c < children.length; c++) {
       html += renderCatItem(children[c], true, childrenMap);
     }
+    html += '</div>';
   }
 
   return html;
@@ -1477,7 +1504,6 @@ function renderCatEditList() {
     var checked = selectedCategories[cat.id] ? "checked" : "";
     html += '<div class="cat-edit-row">' +
       '<input type="checkbox" class="cat-checkbox" data-catid="' + cat.id + '" ' + checked + ' onchange="toggleCatSelection(\'' + cat.id + '\', this.checked)">' +
-      '<span class="cat-color" style="background:' + cat.color + '" onclick="cycleCatColor(\'' + cat.id + '\')"></span>' +
       '<input value="' + cat.name + '" onblur="renameCategory(\'' + cat.id + '\', this.value)" onkeydown="if(event.key===\'Enter\')this.blur()">' +
     '</div>';
     // Children of this parent
@@ -1487,7 +1513,6 @@ function renderCatEditList() {
       var subChecked = selectedCategories[sub.id] ? "checked" : "";
       html += '<div class="cat-edit-row" style="padding-left:20px;opacity:0.8;">' +
         '<input type="checkbox" class="cat-checkbox" data-catid="' + sub.id + '" ' + subChecked + ' onchange="toggleCatSelection(\'' + sub.id + '\', this.checked)">' +
-        '<span class="cat-color" style="background:' + cat.color + ';opacity:0.6;width:10px;height:10px;" onclick="cycleCatColor(\'' + sub.id + '\')"></span>' +
         '<input value="' + sub.name + '" onblur="renameCategory(\'' + sub.id + '\', this.value)" onkeydown="if(event.key===\'Enter\')this.blur()" style="font-size:10px;">' +
       '</div>';
     }
