@@ -765,6 +765,8 @@ function getFilteredFiles() {
 
 // --- UI Actions ---
 function setFormat(format, btn) {
+  if (state.showSettings) toggleSettings();
+  if (metricsState.visible) toggleMetrics();
   state.activeFormat = format;
   var tabs = document.querySelectorAll("#formatTabs .tab");
   for (var i = 0; i < tabs.length; i++) tabs[i].classList.remove("active");
@@ -796,6 +798,7 @@ function toggleSettings() {
   var gridSlider = document.getElementById("gridSliderBar");
 
   if (state.showSettings) {
+    if (metricsState.visible) toggleMetrics();
     settingsPanel.style.display = "block";
     sidebar.style.display = "none";
     gridContainer.style.display = "none";
