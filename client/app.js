@@ -76,11 +76,16 @@ function openStockFolder() {
 function changeStockFolder() {
   var child = require("child_process");
   if (isWindows) {
-    var psScript = '[System.Reflection.Assembly]::LoadWithPartialName("System.Windows.Forms") | Out-Null; ' +
-      '$dlg = New-Object System.Windows.Forms.FolderBrowserDialog; ' +
-      '$dlg.Description = "Selecionar pasta de assets"; ' +
-      '$dlg.ShowNewFolderButton = $true; ' +
-      'if ($dlg.ShowDialog() -eq "OK") { $dlg.SelectedPath } else { "" }';
+    var psScript =
+      'Add-Type -AssemblyName System.Windows.Forms; ' +
+      '$f = New-Object System.Windows.Forms.OpenFileDialog; ' +
+      '$f.Title = "Selecionar pasta de assets"; ' +
+      '$f.CheckFileExists = $false; ' +
+      '$f.CheckPathExists = $true; ' +
+      '$f.FileName = "Selecionar pasta"; ' +
+      '$f.Filter = "Pasta|*.none"; ' +
+      '$f.InitialDirectory = [Environment]::GetFolderPath("Desktop"); ' +
+      'if ($f.ShowDialog() -eq "OK") { [System.IO.Path]::GetDirectoryName($f.FileName) } else { "" }';
     child.exec('powershell -Command "' + psScript.replace(/"/g, '\\"') + '"', function(err, stdout) {
       var result = stdout ? stdout.trim() : "";
       if (!err && result) {
