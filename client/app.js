@@ -34,6 +34,7 @@ var state = {
   customFolder: null,
   autoCategories: true,
   deletedCategoryIds: [],
+  favoriteFiles: {},
   userId: null,
 };
 
@@ -244,6 +245,8 @@ function loadState() {
       if (data.autoCategories !== undefined) state.autoCategories = data.autoCategories;
       if (data.deletedCategoryIds) state.deletedCategoryIds = data.deletedCategoryIds;
       if (data.userId) state.userId = data.userId;
+      if (data.sidebarWidth) state.sidebarWidth = data.sidebarWidth;
+      if (data.favoriteFiles) state.favoriteFiles = data.favoriteFiles;
     }
   } catch (e) {
     console.log("No saved state:", e);
@@ -266,7 +269,9 @@ function saveState() {
       customFolder: state.customFolder,
       autoCategories: state.autoCategories,
       deletedCategoryIds: state.deletedCategoryIds,
+      favoriteFiles: state.favoriteFiles,
       userId: state.userId,
+      sidebarWidth: state.sidebarWidth,
     }), "utf-8");
   } catch (e) {
     console.error("Save failed:", e);
@@ -859,9 +864,10 @@ function onDoubleClick(fileIndex) {
 function getFilteredFiles() {
   return state.files.filter(function(f) {
     if (state.activeFormat !== "all" && f.type !== state.activeFormat) return false;
-    if (state.activeCategory !== "all") {
+    if (state.activeCategory === "__favorites") {
+      if (!state.favoriteFiles || !state.favoriteFiles[f.path]) return false;
+    } else if (state.activeCategory !== "all") {
       if (f.category !== state.activeCategory) {
-        // Se a categoria ativa é pai, inclui arquivos das subcategorias
         if (f.category && f.category.indexOf(state.activeCategory + "/") === 0) {
           // match — subcategoria do pai ativo
         } else {
@@ -994,8 +1000,16 @@ function addCategory() {
 }
 
 function removeCategory(catId) {
-  state.categories = state.categories.filter(function(c) { return c.id !== catId || c.system; });
-  if (state.activeCategory === catId) state.activeCategory = "all";
+  var existing = document.getElementById("catCtxMenu");
+  if (existing) existing.remove();
+  // Remove category and its subcategories
+  state.categories = state.categories.filter(function(c) {
+    if (c.system) return true;
+    if (c.id === catId) return false;
+    if (c.parent === catId) return false;
+    return true;
+  });
+  if (state.activeCategory === catId || state.activeCategory.indexOf(catId + "/") === 0) state.activeCategory = "all";
   if (state.deletedCategoryIds.indexOf(catId) === -1) state.deletedCategoryIds.push(catId);
   saveState();
   renderCategories();
@@ -1033,6 +1047,20 @@ function closeModal(e) {
   document.getElementById("modalContainer").innerHTML = "";
 }
 
+function toggleFileFavorite(filePath) {
+  if (!state.favoriteFiles) state.favoriteFiles = {};
+  if (state.favoriteFiles[filePath]) {
+    delete state.favoriteFiles[filePath];
+    showToast("Removido dos favoritos");
+  } else {
+    state.favoriteFiles[filePath] = true;
+    showToast("Adicionado aos favoritos");
+  }
+  saveState();
+  renderCategories();
+  renderGrid();
+}
+
 // --- Context Menu ---
 function showContextMenu(e, fileIndex) {
   e.preventDefault();
@@ -1049,6 +1077,28 @@ function showContextMenu(e, fileIndex) {
     "border-radius:var(--radius);padding:4px 0;min-width:160px;" +
     "z-index:999;box-shadow:0 4px 12px #00000066;";
 
+  // Favorite toggle
+  var isFav = state.favoriteFiles && state.favoriteFiles[file.path];
+  var favItem = document.createElement("div");
+  favItem.style.cssText = "padding:5px 12px;font-size:11px;cursor:pointer;color:" + (isFav ? "#e8a634" : "var(--text-primary)") + ";display:flex;align-items:center;gap:8px;";
+  favItem.innerHTML =
+    '<svg width="12" height="12" viewBox="0 0 24 24" fill="' + (isFav ? "#e8a634" : "none") + '" stroke="#e8a634" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+      '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>' +
+    '</svg>' +
+    (isFav ? "Remover dos favoritos" : "Adicionar aos favoritos");
+  favItem.onmouseover = function() { favItem.style.background = "var(--bg-hover)"; };
+  favItem.onmouseout = function() { favItem.style.background = "transparent"; };
+  favItem.onclick = function() {
+    toggleFileFavorite(file.path);
+    menu.remove();
+  };
+  menu.appendChild(favItem);
+
+  // Divider
+  var divider = document.createElement("div");
+  divider.style.cssText = "height:1px;background:var(--border);margin:4px 8px;";
+  menu.appendChild(divider);
+
   var header = document.createElement("div");
   header.style.cssText = "padding:6px 12px;font-size:10px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.3px;";
   header.textContent = "Mover para categoria";
@@ -1062,8 +1112,7 @@ function showContextMenu(e, fileIndex) {
       "color:" + (file.category === cat.id ? "var(--accent)" : "var(--text-primary)") + ";" +
       (isSub ? "opacity:0.8;" : "") +
       "display:flex;align-items:center;gap:6px;";
-    var dotSize = isSub ? 6 : 8;
-    item.innerHTML = '<span style="width:' + dotSize + 'px;height:' + dotSize + 'px;border-radius:2px;background:' + cat.color + ';flex-shrink:0;"></span>' + cat.name;
+    item.innerHTML = (isSub ? '&nbsp;&nbsp;' : '') + cat.name;
     item.onmouseover = function() { item.style.background = "var(--bg-hover)"; };
     item.onmouseout = function() { item.style.background = "transparent"; };
     item.onclick = function() {
@@ -1099,73 +1148,215 @@ function toggleCategoryExpand(catId, e) {
   renderCategories();
 }
 
+function renderCatItem(cat, isSub, childrenMap) {
+  var children = childrenMap[cat.id] || [];
+  var hasChildren = children.length > 0;
+  var isExpanded = state.expandedCategories[cat.id];
+  var count = isSub
+    ? state.files.filter(function(f) { return f.category === cat.id; }).length
+    : getCatFileCount(cat.id, cat.system);
+
+  var arrow = '';
+  if (hasChildren && !cat.system) {
+    arrow = '<span class="cat-arrow ' + (isExpanded ? "expanded" : "") + '" ' +
+      'onclick="toggleCategoryExpand(\'' + cat.id + '\', event)">' +
+      '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">' +
+        '<polyline points="9 18 15 12 9 6"/>' +
+      '</svg></span>';
+  }
+
+  var ctxMenu = cat.system ? '' : 'oncontextmenu="showCatContextMenu(event, \'' + cat.id + '\')"';
+
+  var html = '<div class="cat-item ' + (isSub ? "cat-sub " : "") + (state.activeCategory === cat.id ? "active" : "") + '" ' +
+    'onclick="setCategory(\'' + cat.id + '\')" ' +
+    ctxMenu + ' ' +
+    'ondragover="onCatDragOver(event)" ' +
+    'ondragleave="onCatDragLeave(event)" ' +
+    'ondrop="onCatDrop(event, \'' + cat.id + '\')">' +
+    '<span style="display:flex;align-items:center;gap:6px;overflow:hidden;">' +
+      arrow +
+      '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + cat.name + '</span>' +
+    '</span>' +
+    '<span class="cat-count">' + count + '</span>' +
+  '</div>';
+
+  if (hasChildren && isExpanded) {
+    for (var c = 0; c < children.length; c++) {
+      html += renderCatItem(children[c], true, childrenMap);
+    }
+  }
+
+  return html;
+}
+
+function getFavoriteCount() {
+  if (!state.favoriteFiles) return 0;
+  var count = 0;
+  for (var i = 0; i < state.files.length; i++) {
+    if (state.favoriteFiles[state.files[i].path]) count++;
+  }
+  return count;
+}
+
 function renderCategories() {
   var list = document.getElementById("categoryList");
   var html = "";
 
-  // Separate parent categories and subcategories
-  var parents = [];
+  // Favorites (files) section — always on top
+  var favCount = getFavoriteCount();
+  html += '<div class="cat-item ' + (state.activeCategory === "__favorites" ? "active" : "") + '" ' +
+    'onclick="setCategory(\'__favorites\')">' +
+    '<span style="display:flex;align-items:center;gap:6px;overflow:hidden;">' +
+      '<svg width="11" height="11" viewBox="0 0 24 24" fill="' + (state.activeCategory === "__favorites" ? "#e8a634" : "none") + '" stroke="#e8a634" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+        '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>' +
+      '</svg>' +
+      '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Favoritos</span>' +
+    '</span>' +
+    '<span class="cat-count">' + favCount + '</span>' +
+  '</div>';
+
+  html += '<div class="cat-divider"></div>';
+
+  // Separate: system, parents, subcategories
+  var systemCats = [];
+  var normalCats = [];
   var childrenMap = {};
+
   for (var i = 0; i < state.categories.length; i++) {
     var cat = state.categories[i];
     if (cat.parent) {
       if (!childrenMap[cat.parent]) childrenMap[cat.parent] = [];
       childrenMap[cat.parent].push(cat);
+    } else if (cat.system) {
+      systemCats.push(cat);
     } else {
-      parents.push(cat);
+      normalCats.push(cat);
     }
   }
 
-  for (var p = 0; p < parents.length; p++) {
-    var cat = parents[p];
-    var children = childrenMap[cat.id] || [];
-    var hasChildren = children.length > 0;
-    var isExpanded = state.expandedCategories[cat.id];
-    var count = getCatFileCount(cat.id, cat.system);
+  // System categories (Todos)
+  for (var s = 0; s < systemCats.length; s++) {
+    html += renderCatItem(systemCats[s], false, childrenMap);
+  }
 
-    var arrow = '';
-    if (hasChildren && !cat.system) {
-      arrow = '<span class="cat-arrow ' + (isExpanded ? "expanded" : "") + '" ' +
-        'onclick="toggleCategoryExpand(\'' + cat.id + '\', event)">' +
-        '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">' +
-          '<polyline points="9 18 15 12 9 6"/>' +
-        '</svg></span>';
-    }
-
-    html += '<div class="cat-item ' + (state.activeCategory === cat.id ? "active" : "") + '" ' +
-      'onclick="setCategory(\'' + cat.id + '\')" ' +
-      'ondragover="onCatDragOver(event)" ' +
-      'ondragleave="onCatDragLeave(event)" ' +
-      'ondrop="onCatDrop(event, \'' + cat.id + '\')">' +
-      '<span style="display:flex;align-items:center;gap:6px;">' +
-        arrow +
-        '<span style="width:8px;height:8px;border-radius:2px;background:' + cat.color + ';flex-shrink:0;"></span>' +
-        cat.name +
-      '</span>' +
-      '<span class="cat-count">' + count + '</span>' +
-    '</div>';
-
-    // Render subcategories if expanded
-    if (hasChildren && isExpanded) {
-      for (var c = 0; c < children.length; c++) {
-        var sub = children[c];
-        var subCount = state.files.filter(function(f) { return f.category === sub.id; }).length;
-        html += '<div class="cat-item cat-sub ' + (state.activeCategory === sub.id ? "active" : "") + '" ' +
-          'onclick="setCategory(\'' + sub.id + '\')" ' +
-          'ondragover="onCatDragOver(event)" ' +
-          'ondragleave="onCatDragLeave(event)" ' +
-          'ondrop="onCatDrop(event, \'' + sub.id + '\')">' +
-          '<span style="display:flex;align-items:center;gap:6px;">' +
-            '<span style="width:6px;height:6px;border-radius:2px;background:' + cat.color + ';opacity:0.5;flex-shrink:0;"></span>' +
-            sub.name +
-          '</span>' +
-          '<span class="cat-count">' + subCount + '</span>' +
-        '</div>';
-      }
+  // Normal categories
+  if (normalCats.length > 0) {
+    html += '<div class="cat-divider"></div>';
+    for (var n = 0; n < normalCats.length; n++) {
+      html += renderCatItem(normalCats[n], false, childrenMap);
     }
   }
 
   list.innerHTML = html;
+}
+
+// --- Category Context Menu ---
+function showCatContextMenu(e, catId) {
+  e.preventDefault();
+  e.stopPropagation();
+  var existing = document.getElementById("catCtxMenu");
+  if (existing) existing.remove();
+
+  var cat = null;
+  for (var i = 0; i < state.categories.length; i++) {
+    if (state.categories[i].id === catId) { cat = state.categories[i]; break; }
+  }
+  if (!cat || cat.system) return;
+
+  var menu = document.createElement("div");
+  menu.id = "catCtxMenu";
+  menu.className = "cat-ctx-menu";
+  menu.style.left = e.clientX + "px";
+  menu.style.top = e.clientY + "px";
+
+  menu.innerHTML =
+    '<div class="cat-ctx-item" onclick="showRenameCategoryModal(\'' + catId + '\')">' +
+      '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+        '<path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>' +
+        '<path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>' +
+      '</svg>' +
+      'Renomear' +
+    '</div>' +
+    '<div class="cat-ctx-item danger" onclick="removeCategory(\'' + catId + '\')">' +
+      '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+        '<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>' +
+      '</svg>' +
+      'Excluir' +
+    '</div>';
+
+  document.body.appendChild(menu);
+
+  // Adjust position if menu goes off screen
+  var rect = menu.getBoundingClientRect();
+  if (rect.right > window.innerWidth) menu.style.left = (window.innerWidth - rect.width - 4) + "px";
+  if (rect.bottom > window.innerHeight) menu.style.top = (window.innerHeight - rect.height - 4) + "px";
+
+  var closeFn = function() {
+    menu.remove();
+    document.removeEventListener("click", closeFn);
+  };
+  setTimeout(function() { document.addEventListener("click", closeFn); }, 10);
+}
+
+function showRenameCategoryModal(catId) {
+  var existing = document.getElementById("catCtxMenu");
+  if (existing) existing.remove();
+  var cat = null;
+  for (var i = 0; i < state.categories.length; i++) {
+    if (state.categories[i].id === catId) { cat = state.categories[i]; break; }
+  }
+  if (!cat) return;
+  var container = document.getElementById("modalContainer");
+  container.innerHTML =
+    '<div class="modal-overlay" onclick="closeModal(event)">' +
+      '<div class="modal" onclick="event.stopPropagation()">' +
+        '<h3>Renomear Categoria</h3>' +
+        '<input type="text" id="renameCatInput" value="' + cat.name.replace(/"/g, '&quot;') + '" autofocus onkeydown="if(event.key===\'Enter\'){renameCategory(\'' + catId + '\',this.value);closeModal()}">' +
+        '<div class="modal-actions">' +
+          '<button class="btn" onclick="closeModal()">Cancelar</button>' +
+          '<button class="btn btn-primary" onclick="renameCategory(\'' + catId + '\',document.getElementById(\'renameCatInput\').value);closeModal()">Salvar</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  setTimeout(function() { var inp = document.getElementById("renameCatInput"); inp.focus(); inp.select(); }, 100);
+}
+
+// --- Sidebar Resize ---
+function initSidebarResize() {
+  var handle = document.getElementById("sidebarResizeHandle");
+  var sidebar = document.getElementById("sidebar");
+  if (!handle || !sidebar) return;
+
+  var dragging = false;
+  var startX, startWidth;
+
+  handle.addEventListener("mousedown", function(e) {
+    e.preventDefault();
+    dragging = true;
+    startX = e.clientX;
+    startWidth = sidebar.offsetWidth;
+    handle.classList.add("dragging");
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  });
+
+  document.addEventListener("mousemove", function(e) {
+    if (!dragging) return;
+    var newWidth = startWidth + (e.clientX - startX);
+    if (newWidth >= 100 && newWidth <= 280) {
+      sidebar.style.width = newWidth + "px";
+    }
+  });
+
+  document.addEventListener("mouseup", function() {
+    if (!dragging) return;
+    dragging = false;
+    handle.classList.remove("dragging");
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+    state.sidebarWidth = sidebar.offsetWidth;
+    saveState();
+  });
 }
 
 function renderGrid() {
@@ -1563,14 +1754,62 @@ function exportEventsCSV(events) {
   var csv = lines.join("\n");
   var path = require("path");
   var fs = require("fs");
-  var exportPath = path.join(getStockFolder(), "stockhub-export-" + new Date().toISOString().slice(0, 10) + ".csv");
-  try {
-    fs.writeFileSync(exportPath, "\uFEFF" + csv, "utf-8"); // BOM for Excel
-    showToast("Exportado: " + exportPath);
-    // Open in explorer
-    cs.evalScript('new File("' + exportPath.replace(/\\/g, "/") + '").execute()');
-  } catch (e) {
-    showToast("Erro ao exportar: " + e.toString());
+  var child = require("child_process");
+  var os = require("os");
+  var defaultName = "stockhub-export-" + new Date().toISOString().slice(0, 10) + ".csv";
+
+  if (isWindows) {
+    var psFile = path.join(os.tmpdir(), "stockhub_save_csv.ps1");
+    var psContent = [
+      'Add-Type -AssemblyName System.Windows.Forms',
+      '$form = New-Object System.Windows.Forms.Form',
+      '$form.TopMost = $true',
+      '$form.Width = 0',
+      '$form.Height = 0',
+      '$form.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual',
+      '$form.Location = New-Object System.Drawing.Point(-1000,-1000)',
+      '$form.Show()',
+      '$dlg = New-Object System.Windows.Forms.SaveFileDialog',
+      '$dlg.Title = "Salvar exportacao CSV"',
+      '$dlg.Filter = "CSV (*.csv)|*.csv"',
+      '$dlg.FileName = "' + defaultName + '"',
+      '$dlg.DefaultExt = "csv"',
+      '$dlg.InitialDirectory = [Environment]::GetFolderPath("Desktop")',
+      'if ($dlg.ShowDialog($form) -eq [System.Windows.Forms.DialogResult]::OK) {',
+      '  $dlg.FileName',
+      '}',
+      '$form.Close()',
+    ].join("\n");
+    fs.writeFileSync(psFile, psContent, "utf-8");
+    child.exec('powershell -ExecutionPolicy Bypass -File "' + psFile + '"', function(err, stdout) {
+      try { fs.unlinkSync(psFile); } catch(ex) {}
+      var exportPath = stdout ? stdout.trim() : "";
+      if (!err && exportPath) {
+        try {
+          fs.writeFileSync(exportPath, "\uFEFF" + csv, "utf-8");
+          showToast("Exportado: " + exportPath);
+          cs.evalScript('new File("' + exportPath.replace(/\\/g, "/") + '").execute()');
+        } catch (ex) {
+          showToast("Erro ao exportar: " + ex.toString());
+        }
+      }
+    });
+  } else {
+    var appleScript = "osascript -e 'tell application \"System Events\"' -e 'activate' " +
+      "-e 'set savePath to POSIX path of (choose file name with prompt \"Salvar exportacao CSV\" default name \"" + defaultName + "\")' " +
+      "-e 'end tell'";
+    child.exec(appleScript, function(err, stdout) {
+      var exportPath = stdout ? stdout.trim() : "";
+      if (!err && exportPath) {
+        if (!exportPath.match(/\.csv$/i)) exportPath += ".csv";
+        try {
+          fs.writeFileSync(exportPath, "\uFEFF" + csv, "utf-8");
+          showToast("Exportado: " + exportPath);
+        } catch (ex) {
+          showToast("Erro ao exportar: " + ex.toString());
+        }
+      }
+    });
   }
 }
 
@@ -1918,6 +2157,13 @@ function init() {
     } else {
       console.log("StockHub: FFmpeg not found. MOV previews disabled.");
     }
+
+    // Restore sidebar width
+    if (state.sidebarWidth) {
+      var sb = document.getElementById("sidebar");
+      if (sb) sb.style.width = state.sidebarWidth + "px";
+    }
+    initSidebarResize();
 
     refreshFiles();
 
