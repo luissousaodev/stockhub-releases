@@ -358,6 +358,64 @@ function scanFolder(folderPath) {
   return files;
 }
 
+// --- Filesystem watcher ---
+// Re-escaneia automaticamente quando arquivos sao adicionados/removidos/renomeados
+// na pasta de stock. Debounced para evitar storms de eventos.
+var _fsWatcher = null;
+var _fsWatchTimer = null;
+var _fsWatchedFolder = null;
+
+function stopFolderWatcher() {
+  if (_fsWatcher) {
+    try { _fsWatcher.close(); } catch (e) {}
+    _fsWatcher = null;
+  }
+  if (_fsWatchTimer) {
+    clearTimeout(_fsWatchTimer);
+    _fsWatchTimer = null;
+  }
+  _fsWatchedFolder = null;
+}
+
+function startFolderWatcher(folder) {
+  var fs = require("fs");
+  var path = require("path");
+  if (_fsWatchedFolder === folder && _fsWatcher) return;
+  stopFolderWatcher();
+  if (!folder || !fs.existsSync(folder)) return;
+  try {
+    _fsWatcher = fs.watch(folder, { recursive: true }, function(eventType, filename) {
+      if (!filename) return;
+      // Ignora arquivos internos / pastas de cache / data
+      var lower = String(filename).toLowerCase().replace(/\\/g, "/");
+      if (lower.indexOf(".cache/") >= 0 || lower.indexOf("stockhub-data/") >= 0) return;
+      if (lower.charAt(0) === ".") return;
+      var base = lower.split("/").pop();
+      if (base.charAt(0) === ".") return;
+      // Debounce: aguarda 400ms de quietude antes de re-escanear
+      if (_fsWatchTimer) clearTimeout(_fsWatchTimer);
+      _fsWatchTimer = setTimeout(function() {
+        _fsWatchTimer = null;
+        try {
+          state.files = scanFolder(folder);
+          renderAll();
+          var statusEl = document.getElementById("statusText");
+          if (statusEl) statusEl.textContent = "Atualizado automaticamente";
+        } catch (e) {
+          console.error("Auto-refresh error:", e);
+        }
+      }, 400);
+    });
+    _fsWatcher.on("error", function(err) {
+      console.error("FS watcher error:", err);
+      stopFolderWatcher();
+    });
+    _fsWatchedFolder = folder;
+  } catch (e) {
+    console.error("Failed to start fs watcher:", e);
+  }
+}
+
 function refreshFiles() {
   var fs = require("fs");
   var folder = getStockFolder();
@@ -374,6 +432,7 @@ function refreshFiles() {
   renderAll();
   showToast(state.files.length + " arquivos encontrados");
   document.getElementById("statusText").textContent = "Atualizado";
+  startFolderWatcher(folder);
 
   // Pre-generate ffmpeg thumbnails + detect resolutions in background
   if (findFFmpeg()) {
@@ -804,11 +863,40 @@ function cleanupPreview() {
   }
 }
 
-// --- Drag to Categorize ---
+// --- Drag (categorize internamente + drop nativo na timeline do Premiere) ---
 function onFileDragStart(e, fileIndex) {
+  var file = state.files[fileIndex];
+  // Para drop interno (categorias) — usa o indice
   e.dataTransfer.setData("text/plain", String(fileIndex));
-  e.dataTransfer.effectAllowed = "move";
-  e.target.closest(".grid-item").classList.add("dragging");
+  e.dataTransfer.effectAllowed = "copyMove";
+
+  if (file && file.path) {
+    // MIME oficial do CEP para drop nativo em apps Adobe (Premiere/AE/etc).
+    // O Premiere aceita ate 9 arquivos via .file.0 ... .file.8
+    try { e.dataTransfer.setData("com.adobe.cep.dnd.file.0", file.path); } catch (err) {}
+    // Fallback URI para outros alvos
+    try {
+      var uri = "file:///" + file.path.replace(/\\/g, "/").replace(/ /g, "%20");
+      e.dataTransfer.setData("text/uri-list", uri);
+    } catch (err2) {}
+  }
+
+  var item = e.target.closest && e.target.closest(".grid-item");
+  if (item) item.classList.add("dragging");
+
+  // Suprime o preview visual (drag image) que o Premiere renderiza na timeline
+  // durante o arrasto. Usamos uma imagem 1x1 transparente como drag image.
+  try {
+    if (e.dataTransfer.setDragImage) {
+      if (!window.__emptyDragImage) {
+        var img = new Image();
+        img.src =
+          "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+        window.__emptyDragImage = img;
+      }
+      e.dataTransfer.setDragImage(window.__emptyDragImage, 0, 0);
+    }
+  } catch (errImg) {}
 }
 
 function onFileDragEnd(e) {
@@ -1191,7 +1279,11 @@ function renderCatItem(cat, isSub, childrenMap) {
 
   var ctxMenu = cat.system ? '' : 'oncontextmenu="showCatContextMenu(event, \'' + cat.id + '\')"';
 
-  var html = '<div class="cat-item ' + (isSub ? "cat-sub " : "") + (state.activeCategory === cat.id ? "active" : "") + '" ' +
+  var isActive = state.activeCategory === cat.id;
+  var isParentActive = !isActive && typeof state.activeCategory === "string" &&
+    state.activeCategory.indexOf(cat.id + "/") === 0;
+  var stateClass = isActive ? "active" : (isParentActive ? "parent-active" : "");
+  var html = '<div class="cat-item ' + (isSub ? "cat-sub " : "") + stateClass + '" ' +
     'onclick="setCategory(\'' + cat.id + '\')" ' +
     ctxMenu + ' ' +
     'ondragover="onCatDragOver(event)" ' +

@@ -103,52 +103,109 @@ function importFileToTimeline(filePath) {
         var currentTime = activeSequence.getPlayerPosition();
         var playheadTicks = Number(currentTime.ticks);
 
-        function findFreeTrack(seq, pTicks) {
-            for (var t = 0; t < seq.videoTracks.numTracks; t++) {
-                var trk = seq.videoTracks[t];
+        // --- Lógica pura (testável) ---
+        // Retorna o índice da primeira track livre no ponto pTicks, ou -1.
+        function findFreeTrackIndex(tracks, pTicks) {
+            for (var t = 0; t < tracks.numTracks; t++) {
+                var trk = tracks[t];
                 var free = true;
-
                 for (var c = 0; c < trk.clips.numItems; c++) {
                     var clip = trk.clips[c];
-                    var clipStart = Number(clip.start.ticks);
-                    var clipEnd = Number(clip.end.ticks);
-
-                    if (pTicks >= clipStart && pTicks < clipEnd) {
-                        free = false;
-                        break;
-                    }
+                    var s = Number(clip.start.ticks);
+                    var e = Number(clip.end.ticks);
+                    if (pTicks >= s && pTicks < e) { free = false; break; }
                 }
-
-                if (free) return trk;
+                if (free) return t;
             }
-            return null;
+            return -1;
         }
 
-        var targetTrack = findFreeTrack(activeSequence, playheadTicks);
+        function itemHasAudio(item) {
+            try {
+                if (typeof item.hasAudio === "function") return item.hasAudio();
+            } catch (e) {}
+            return true; // assume áudio por segurança
+        }
 
-        if (!targetTrack) {
-            app.enableQE();
-            var qeSeq = qe.project.getActiveSequence();
+        var hasAudio = itemHasAudio(projectItem);
+        var videoIdx = findFreeTrackIndex(activeSequence.videoTracks, playheadTicks);
+        var audioIdx = hasAudio ? findFreeTrackIndex(activeSequence.audioTracks, playheadTicks) : -2;
 
-            var oldNumTracks = activeSequence.videoTracks.numTracks;
+        app.enableQE();
 
-            // força criação acima da última existente
-            qeSeq.addTracks(1, oldNumTracks, 0, 0);
+        // Append estrito no topo. Retorna o índice da nova track ou -1 em falha.
+        // NUNCA insere no meio (isso deslocaria tracks existentes e quebraria
+        // referências/targeting).
+        function appendVideoTrack() {
+            var before = activeSequence.videoTracks.numTracks;
+            try {
+                qe.project.getActiveSequence().addTracks(1, before, 0, 0, 1, 0, 0, 1);
+            } catch (e) {
+                return -1;
+            }
+            activeSequence = project.activeSequence;
+            if (activeSequence.videoTracks.numTracks === before + 1) return before;
+            return -1;
+        }
 
-            var newNumTracks = activeSequence.videoTracks.numTracks;
+        function appendAudioTrack(audType) {
+            var before = activeSequence.audioTracks.numTracks;
+            try {
+                qe.project.getActiveSequence().addTracks(0, 0, 1, before, audType, 0, 0, 1);
+            } catch (e) {
+                return -1;
+            }
+            activeSequence = project.activeSequence;
+            if (activeSequence.audioTracks.numTracks === before + 1) return before;
+            return -1;
+        }
 
-            if (newNumTracks <= oldNumTracks) {
+        if (videoIdx === -1) {
+            videoIdx = appendVideoTrack();
+            if (videoIdx === -1) {
                 return JSON.stringify({
                     success: false,
-                    error: "Não foi possível criar nova video track no topo"
+                    error: "Falha ao criar video track (atual: " + activeSequence.videoTracks.numTracks + ")"
                 });
             }
-
-            // pega diretamente a nova track criada
-            targetTrack = activeSequence.videoTracks[oldNumTracks];
         }
 
-        targetTrack.overwriteClip(projectItem, currentTime);
+        if (hasAudio && audioIdx === -1) {
+            // audType 1 = stereo na maioria das versões do QE do Premiere
+            audioIdx = appendAudioTrack(1);
+            if (audioIdx === -1) {
+                return JSON.stringify({
+                    success: false,
+                    error: "Falha ao criar audio track (atual: " + activeSequence.audioTracks.numTracks + ")"
+                });
+            }
+        }
+
+        // Snapshot do targeting atual ANTES de mexer, usando a contagem atual
+        // (já inclui qualquer track recém-criada).
+        var numV = activeSequence.videoTracks.numTracks;
+        var numA = activeSequence.audioTracks.numTracks;
+        var prevVideoTargets = new Array(numV);
+        var prevAudioTargets = new Array(numA);
+        for (var vi = 0; vi < numV; vi++) {
+            prevVideoTargets[vi] = activeSequence.videoTracks[vi].isTargeted();
+            activeSequence.videoTracks[vi].setTargeted(vi === videoIdx, true);
+        }
+        for (var ai = 0; ai < numA; ai++) {
+            prevAudioTargets[ai] = activeSequence.audioTracks[ai].isTargeted();
+            activeSequence.audioTracks[ai].setTargeted(hasAudio && ai === audioIdx, true);
+        }
+
+        activeSequence.videoTracks[videoIdx].overwriteClip(projectItem, currentTime);
+
+        // Restaura targeting (mesmo tamanho do snapshot — nenhuma track foi
+        // adicionada/removida entre o snapshot e agora).
+        for (var vi2 = 0; vi2 < numV; vi2++) {
+            activeSequence.videoTracks[vi2].setTargeted(prevVideoTargets[vi2], true);
+        }
+        for (var ai2 = 0; ai2 < numA; ai2++) {
+            activeSequence.audioTracks[ai2].setTargeted(prevAudioTargets[ai2], true);
+        }
 
         return JSON.stringify({ success: true, message: "Clip inserido na timeline" });
     } catch (e) {

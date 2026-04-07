@@ -218,6 +218,13 @@ html, body {
 
 .cat-item.active .cat-count { color: var(--accent); }
 
+.cat-item.parent-active {
+  background: var(--bg-active);
+  color: var(--text-primary);
+  font-weight: 500;
+}
+.cat-item.parent-active .cat-count { color: var(--accent); }
+
 /* Subcategories container */
 .cat-sub-group {
   margin-left: 18px;
