@@ -3,15 +3,15 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg-primary: #1e1e1e;
-  --bg-secondary: #252526;
-  --bg-tertiary: #2d2d2d;
-  --bg-hover: #383838;
-  --bg-active: #04395e;
-  --border: #3e3e42;
-  --text-primary: #cccccc;
-  --text-secondary: #888;
-  --text-muted: #666;
+  --bg-primary: #161616;
+  --bg-secondary: #1b1b1b;
+  --bg-tertiary: #202020;
+  --bg-hover: #2a2a2a;
+  --bg-active: #2b3a4a;
+  --border: #2a2a2a;
+  --text-primary: #d4d4d4;
+  --text-secondary: #8a8a8a;
+  --text-muted: #9a9a9a;
   --accent: #0078d4;
   --accent-hover: #1a8ae8;
   --accent-subtle: #0078d420;

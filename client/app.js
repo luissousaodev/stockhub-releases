@@ -934,6 +934,19 @@ function onCatDrop(e, catId) {
   showToast("Movido para: " + catName);
 }
 
+function onFavoritesDrop(e) {
+  e.preventDefault();
+  e.currentTarget.classList.remove("drag-over");
+  var fileIndex = parseInt(e.dataTransfer.getData("text/plain"));
+  var file = state.files[fileIndex];
+  if (!file) return;
+  if (!state.favoriteFiles) state.favoriteFiles = {};
+  state.favoriteFiles[file.path] = true;
+  saveState();
+  renderAll();
+  showToast("Adicionado aos favoritos: " + file.name);
+}
+
 function onDoubleClick(fileIndex) {
   var file = state.files[fileIndex];
   if (!file) return;
@@ -1324,7 +1337,10 @@ function renderCategories() {
   // Favorites (files) section — always on top
   var favCount = getFavoriteCount();
   html += '<div class="cat-item ' + (state.activeCategory === "__favorites" ? "active" : "") + '" ' +
-    'onclick="setCategory(\'__favorites\')">' +
+    'onclick="setCategory(\'__favorites\')" ' +
+    'ondragover="onCatDragOver(event)" ' +
+    'ondragleave="onCatDragLeave(event)" ' +
+    'ondrop="onFavoritesDrop(event)">' +
     '<span style="display:flex;align-items:center;gap:6px;overflow:hidden;">' +
       '<svg width="11" height="11" viewBox="0 0 24 24" fill="' + (state.activeCategory === "__favorites" ? "#e8a634" : "none") + '" stroke="#e8a634" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
         '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>' +
