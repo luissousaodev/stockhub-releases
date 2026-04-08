@@ -366,6 +366,24 @@ html, body {
   transition: opacity 0.15s ease;
 }
 
+.grid-item .scrub-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: #00000066;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.grid-item .scrub-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent, #0078d4);
+  transition: width 0.05s linear;
+}
+
 .grid-item .import-btn {
   position: absolute;
   bottom: 24px;

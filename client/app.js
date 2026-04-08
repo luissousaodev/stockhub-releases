@@ -1041,18 +1041,42 @@ function createPreviewVideo(el, src) {
   video.style.opacity = "0";
   video.preload = "auto";
   video.muted = true;
-  video.loop = true;
   video.playsInline = true;
   video.onerror = function() { video.remove(); activePreview = null; };
   el.appendChild(video);
-  activePreview = { el: el, video: video };
-  // Only show video after first frame is ready to avoid flicker
-  video.oncanplay = function() {
-    video.oncanplay = null;
+
+  // Barra de progresso visual no rodape do card (estilo Premiere/Finder)
+  var bar = document.createElement("div");
+  bar.className = "scrub-bar";
+  var fill = document.createElement("div");
+  fill.className = "scrub-bar-fill";
+  bar.appendChild(fill);
+  el.appendChild(bar);
+
+  activePreview = { el: el, video: video, bar: bar, fill: fill, onMove: null };
+
+  // Scrubbing: mapeia a posicao X do mouse no card para o currentTime do video
+  function onMove(ev) {
+    if (!video.duration || isNaN(video.duration)) return;
+    var rect = el.getBoundingClientRect();
+    var x = ev.clientX - rect.left;
+    var ratio = Math.max(0, Math.min(1, x / rect.width));
+    try { video.currentTime = ratio * video.duration; } catch (e) {}
+    fill.style.width = (ratio * 100) + "%";
+  }
+  activePreview.onMove = onMove;
+
+  // Quando os metadados estao prontos, exibe e ja posiciona conforme o mouse
+  video.onloadedmetadata = function() {
+    video.onloadedmetadata = null;
     if (!el.matches(":hover")) { cleanupPreview(); return; }
     video.style.opacity = "1";
-    video.play().catch(function() {});
+    el.addEventListener("mousemove", onMove);
+    // Posicao inicial: centro do video (sera substituida no primeiro mousemove)
+    try { video.currentTime = video.duration / 2; } catch (e) {}
+    fill.style.width = "50%";
   };
+
   video.src = src;
 }
 
@@ -1098,6 +1122,10 @@ function cleanupPreview() {
     media.load();
     media.remove();
     if (activePreview.indicator) activePreview.indicator.remove();
+    if (activePreview.bar) activePreview.bar.remove();
+    if (activePreview.onMove && activePreview.el) {
+      activePreview.el.removeEventListener("mousemove", activePreview.onMove);
+    }
     activePreview = null;
   }
 }
