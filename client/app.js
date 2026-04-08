@@ -3,6 +3,19 @@ var cs = new CSInterface();
 var isWindows = process.platform === "win32";
 var isMac = process.platform === "darwin";
 
+// Converte caminho do filesystem para URL file:// valida em Windows e macOS.
+// Windows: C:\foo\bar -> file:///C:/foo/bar
+// macOS:   /Users/foo -> file:///Users/foo
+function toFileURL(p) {
+  if (!p) return p;
+  var normalized = String(p).replace(/\\/g, "/");
+  if (normalized.charAt(0) === "/") {
+    // path absoluto unix: remove a barra inicial para nao gerar file:////
+    return "file://" + normalized;
+  }
+  return "file:///" + normalized;
+}
+
 // --- Format Groups ---
 var FORMAT_GROUPS = {
   video: [".mp4",".mov",".avi",".mxf",".m4v",".wmv",".mkv",".flv",".mpg",".mpeg",".m2v",".m2t",".m2ts",".mts",".ts",".vob",".webm",".3gp",".f4v",".r3d",".braw"],
@@ -461,7 +474,7 @@ function refreshFiles() {
           processResQueue(idx + 1);
         };
         img.onerror = function() { processResQueue(idx + 1); };
-        img.src = "file:///" + rf.path.replace(/\\/g, "/");
+        img.src = toFileURL(rf.path);
       } else {
         getVideoResolution(rf.path, function(res) {
           if (res) updateResBadge(rf.path, res);
@@ -515,13 +528,13 @@ function getThumbnail(file) {
     for (var i = 0; i < thumbExts.length; i++) {
       var thumbPath = path.join(dir, base + thumbExts[i]);
       if (fs.existsSync(thumbPath)) {
-        var url = "file:///" + thumbPath.replace(/\\/g, "/");
+        var url = toFileURL(thumbPath);
         thumbLookupCache[file.path] = url;
         return url;
       }
       var thumbPath2 = path.join(dir, "thumbs", base + thumbExts[i]);
       if (fs.existsSync(thumbPath2)) {
-        var url2 = "file:///" + thumbPath2.replace(/\\/g, "/");
+        var url2 = toFileURL(thumbPath2);
         thumbLookupCache[file.path] = url2;
         return url2;
       }
@@ -694,7 +707,7 @@ function generateThumbFFmpeg(filePath, callback) {
   var thumbFile = path.join(cacheDir, hash + "_thumb.jpg");
 
   if (fs.existsSync(thumbFile)) {
-    thumbCache[filePath] = "file:///" + thumbFile.replace(/\\/g, "/");
+    thumbCache[filePath] = toFileURL(thumbFile);
     callback(thumbCache[filePath]);
     return;
   }
@@ -714,7 +727,7 @@ function generateThumbFFmpeg(filePath, callback) {
         callback(null);
         return;
       }
-      thumbCache[filePath] = "file:///" + thumbFile.replace(/\\/g, "/");
+      thumbCache[filePath] = toFileURL(thumbFile);
       callback(thumbCache[filePath]);
     });
   });
@@ -733,7 +746,7 @@ function generateProxyFFmpeg(filePath, callback) {
   var proxyFile = path.join(cacheDir, hash + "_proxy.mp4");
 
   if (fs.existsSync(proxyFile)) {
-    proxyCache[filePath] = "file:///" + proxyFile.replace(/\\/g, "/");
+    proxyCache[filePath] = toFileURL(proxyFile);
     callback(proxyCache[filePath]);
     return;
   }
@@ -754,7 +767,7 @@ function generateProxyFFmpeg(filePath, callback) {
       callback(null);
       return;
     }
-    proxyCache[filePath] = "file:///" + proxyFile.replace(/\\/g, "/");
+    proxyCache[filePath] = toFileURL(proxyFile);
     callback(proxyCache[filePath]);
   });
 }
@@ -773,7 +786,7 @@ function onMouseEnter(el, fileIndex) {
     if (!el.matches(":hover")) return;
 
     if (file.type === "audio") {
-      createPreviewAudio(el, "file:///" + file.path.replace(/\\/g, "/"));
+      createPreviewAudio(el, toFileURL(file.path));
       return;
     }
 
@@ -791,7 +804,7 @@ function onMouseEnter(el, fileIndex) {
         });
       }
     } else {
-      createPreviewVideo(el, "file:///" + file.path.replace(/\\/g, "/"));
+      createPreviewVideo(el, toFileURL(file.path));
     }
   }, 150);
 }
@@ -876,7 +889,7 @@ function onFileDragStart(e, fileIndex) {
     try { e.dataTransfer.setData("com.adobe.cep.dnd.file.0", file.path); } catch (err) {}
     // Fallback URI para outros alvos
     try {
-      var uri = "file:///" + file.path.replace(/\\/g, "/").replace(/ /g, "%20");
+      var uri = toFileURL(file.path).replace(/ /g, "%20");
       e.dataTransfer.setData("text/uri-list", uri);
     } catch (err2) {}
   }
@@ -1559,7 +1572,7 @@ function renderGrid() {
     } else if (f.type === "video" && thumbCache[f.path]) {
       thumbContent = '<img class="thumbnail" src="' + thumbCache[f.path] + '" loading="lazy" />';
     } else if (f.type === "image") {
-      thumbContent = '<img class="thumbnail" src="file:///' + f.path.replace(/\\/g, "/") + '" loading="lazy" />';
+      thumbContent = '<img class="thumbnail" src="' + toFileURL(f.path) + '" loading="lazy" />';
     } else {
       // Lightweight placeholder - NO <video> elements in grid
       var iconSvg;
