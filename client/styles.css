@@ -460,6 +460,29 @@ html, body {
   letter-spacing: 0.2px;
 }
 
+.grid-item .cloud-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #00000099;
+  border-radius: 50%;
+  color: #6cb6ff;
+  pointer-events: auto;
+}
+
+.grid-item.cloud-only {
+  opacity: 0.78;
+}
+
+.grid-item.cloud-only .res-badge {
+  display: none;
+}
+
 .grid-item .file-name {
   position: absolute;
   bottom: 0;

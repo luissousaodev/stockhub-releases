@@ -9,6 +9,8 @@ var isMac = process.platform === "darwin";
 var isDragging = false;
 // Processo ffmpeg ativo gerando proxy de hover (cancelavel ao sair do hover/drag)
 var activeProxyProc = null;
+// Processos ffmpeg ativos gerando thumbs (worker pool — varios em paralelo)
+var activeThumbChildren = [];
 // Sinalizador para pausar a fila de geracao de thumbs em background
 var thumbQueuePaused = false;
 
@@ -17,6 +19,13 @@ function killActiveProxyProc() {
     try { activeProxyProc.kill("SIGKILL"); } catch (e) {}
     activeProxyProc = null;
   }
+}
+
+function killActiveThumbChildren() {
+  for (var i = 0; i < activeThumbChildren.length; i++) {
+    try { activeThumbChildren[i].kill("SIGKILL"); } catch (e) {}
+  }
+  activeThumbChildren = [];
 }
 
 // Converte caminho do filesystem para URL file:// valida em Windows e macOS.
@@ -254,6 +263,31 @@ function getStoragePath() {
   return path.join(dataDir, "stockhub-data.json");
 }
 
+// Migra um dicionario keyed por path absoluto para path relativo a pasta
+// de stock. Usado uma unica vez quando o stockhub-data.json esta no formato
+// antigo (dataSchemaVersion < 2). Retorna o novo objeto.
+function migrateAbsoluteKeysToRelative(dict, stockFolder) {
+  if (!dict) return dict;
+  var path = require("path");
+  var out = {};
+  var keys = Object.keys(dict);
+  for (var i = 0; i < keys.length; i++) {
+    var k = keys[i];
+    // Detecta path absoluto: "C:\..." no Windows, "/..." no Unix
+    var isAbs = (k.length > 2 && k.charAt(1) === ":") || k.charAt(0) === "/" || k.charAt(0) === "\\";
+    if (!isAbs) {
+      out[k] = dict[k]; // ja esta relativo
+      continue;
+    }
+    try {
+      var rel = path.relative(stockFolder, k);
+      if (!rel || rel.indexOf("..") === 0) continue; // fora da pasta — descarta
+      out[rel.split(path.sep).join("/")] = dict[k];
+    } catch (e) {}
+  }
+  return out;
+}
+
 function loadState() {
   try {
     var fs = require("fs");
@@ -277,6 +311,18 @@ function loadState() {
       if (data.userId) state.userId = data.userId;
       if (data.sidebarWidth) state.sidebarWidth = data.sidebarWidth;
       if (data.favoriteFiles) state.favoriteFiles = data.favoriteFiles;
+      state.dataSchemaVersion = data.dataSchemaVersion || 1;
+
+      // Migracao one-shot: chaves absolutas -> chaves relativas a pasta de stock.
+      // Roda uma unica vez quando o arquivo esta no formato antigo (v1).
+      if (state.dataSchemaVersion < 2) {
+        var stockFolder = getStockFolder();
+        state.fileCategories = migrateAbsoluteKeysToRelative(state.fileCategories, stockFolder);
+        state.favoriteFiles = migrateAbsoluteKeysToRelative(state.favoriteFiles, stockFolder);
+        state.dataSchemaVersion = 2;
+        try { saveState(); } catch (e) {}
+        console.log("StockHub: migrado stockhub-data.json para schema v2 (paths relativos)");
+      }
     }
   } catch (e) {
     console.log("No saved state:", e);
@@ -293,6 +339,7 @@ function saveState() {
       fs.mkdirSync(dataDir, { recursive: true });
     }
     fs.writeFileSync(filePath, JSON.stringify({
+      dataSchemaVersion: 2,
       categories: state.categories,
       gridSize: state.gridSize,
       fileCategories: state.fileCategories,
@@ -366,14 +413,21 @@ function scanFolder(folderPath) {
         } else {
           var ext = path.extname(item).toLowerCase();
           if (ALL_EXTENSIONS.indexOf(ext) >= 0) {
+            // Heuristica de placeholder do Google Drive Stream:
+            // - macOS: stat.blocks === 0 para arquivos nao baixados
+            // - Windows: cloud files reportam size === 0 ate o download
+            // (campo .blocks pode ser undefined no Windows; tratamos como 0)
+            var blocks = (typeof stat.blocks === "number") ? stat.blocks : -1;
+            var cloudOnly = (blocks === 0) || (stat.size === 0);
             files.push({
               name: item,
               path: fullPath,
               ext: ext.replace(".", ""),
               type: getFileType(ext),
-              category: (state.fileCategories && state.fileCategories[fullPath]) || category || "all",
+              category: (state.fileCategories && state.fileCategories[toRelPath(fullPath)]) || category || "all",
               size: stat.size,
               modified: stat.mtime,
+              cloudOnly: cloudOnly,
             });
           }
         }
@@ -387,44 +441,89 @@ function scanFolder(folderPath) {
   return files;
 }
 
-// --- Filesystem watcher ---
-// Re-escaneia automaticamente quando arquivos sao adicionados/removidos/renomeados
-// na pasta de stock. Debounced para evitar storms de eventos.
-var _fsWatcher = null;
-var _fsWatchTimer = null;
-var _fsWatchedFolder = null;
+// --- Filesystem watcher (polling) ---
+// fs.watch recursivo nao funciona no macOS, e Drive Desktop tampouco emite
+// eventos confiaveis. Substituido por polling: a cada 5s reconstroi um snapshot
+// (relPath -> {mtimeMs, size}) e dispara re-scan se houver diff. Polling tem
+// custo baixo mesmo em pastas grandes do Drive porque readdir nao baixa nada.
+var _watchSnapshot = null;
+var _watchTimer = null;
+var _watchInterval = null;
+var _watchedFolder = null;
+var POLL_INTERVAL_MS = 5000;
+
+function buildSnapshot(rootDir) {
+  var fs = require("fs");
+  var path = require("path");
+  var snap = {};
+  function walk(dir) {
+    var items;
+    try { items = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return; }
+    for (var i = 0; i < items.length; i++) {
+      var d = items[i];
+      var name = d.name;
+      if (name.charAt(0) === "." || name === "stockhub-data") continue;
+      var full = path.join(dir, name);
+      if (d.isDirectory()) {
+        walk(full);
+      } else {
+        var ext = path.extname(name).toLowerCase();
+        if (ALL_EXTENSIONS.indexOf(ext) < 0) continue;
+        try {
+          var st = fs.statSync(full);
+          var rel = path.relative(rootDir, full).split(path.sep).join("/");
+          snap[rel] = { m: st.mtimeMs, s: st.size };
+        } catch (e) {}
+      }
+    }
+  }
+  walk(rootDir);
+  return snap;
+}
+
+function snapshotsDiffer(a, b) {
+  if (!a || !b) return true;
+  var ak = Object.keys(a), bk = Object.keys(b);
+  if (ak.length !== bk.length) return true;
+  for (var i = 0; i < ak.length; i++) {
+    var k = ak[i];
+    if (!b[k]) return true;
+    if (a[k].m !== b[k].m || a[k].s !== b[k].s) return true;
+  }
+  return false;
+}
 
 function stopFolderWatcher() {
-  if (_fsWatcher) {
-    try { _fsWatcher.close(); } catch (e) {}
-    _fsWatcher = null;
+  if (_watchInterval) {
+    clearInterval(_watchInterval);
+    _watchInterval = null;
   }
-  if (_fsWatchTimer) {
-    clearTimeout(_fsWatchTimer);
-    _fsWatchTimer = null;
+  if (_watchTimer) {
+    clearTimeout(_watchTimer);
+    _watchTimer = null;
   }
-  _fsWatchedFolder = null;
+  _watchSnapshot = null;
+  _watchedFolder = null;
 }
 
 function startFolderWatcher(folder) {
   var fs = require("fs");
-  var path = require("path");
-  if (_fsWatchedFolder === folder && _fsWatcher) return;
+  if (_watchedFolder === folder && _watchInterval) return;
   stopFolderWatcher();
   if (!folder || !fs.existsSync(folder)) return;
-  try {
-    _fsWatcher = fs.watch(folder, { recursive: true }, function(eventType, filename) {
-      if (!filename) return;
-      // Ignora arquivos internos / pastas de cache / data
-      var lower = String(filename).toLowerCase().replace(/\\/g, "/");
-      if (lower.indexOf(".cache/") >= 0 || lower.indexOf("stockhub-data/") >= 0) return;
-      if (lower.charAt(0) === ".") return;
-      var base = lower.split("/").pop();
-      if (base.charAt(0) === ".") return;
-      // Debounce: aguarda 400ms de quietude antes de re-escanear
-      if (_fsWatchTimer) clearTimeout(_fsWatchTimer);
-      _fsWatchTimer = setTimeout(function() {
-        _fsWatchTimer = null;
+  _watchedFolder = folder;
+  _watchSnapshot = buildSnapshot(folder);
+
+  function pollOnce() {
+    if (_watchedFolder !== folder) return;
+    var next;
+    try { next = buildSnapshot(folder); } catch (e) { return; }
+    if (snapshotsDiffer(_watchSnapshot, next)) {
+      _watchSnapshot = next;
+      // Reusa o debounce de 400ms para coalescer rajadas de mudancas
+      if (_watchTimer) clearTimeout(_watchTimer);
+      _watchTimer = setTimeout(function() {
+        _watchTimer = null;
         try {
           state.files = scanFolder(folder);
           renderAll();
@@ -434,15 +533,17 @@ function startFolderWatcher(folder) {
           console.error("Auto-refresh error:", e);
         }
       }, 400);
-    });
-    _fsWatcher.on("error", function(err) {
-      console.error("FS watcher error:", err);
-      stopFolderWatcher();
-    });
-    _fsWatchedFolder = folder;
-  } catch (e) {
-    console.error("Failed to start fs watcher:", e);
+    } else {
+      _watchSnapshot = next; // mantem snapshot atualizado
+    }
   }
+
+  _watchInterval = setInterval(pollOnce, POLL_INTERVAL_MS);
+}
+
+// Para o watcher quando a janela e fechada/recarregada
+if (typeof window !== "undefined") {
+  window.addEventListener("beforeunload", function() { stopFolderWatcher(); });
 }
 
 function refreshFiles() {
@@ -469,6 +570,8 @@ function refreshFiles() {
     var resQueue = [];
     for (var i = 0; i < state.files.length; i++) {
       var f = state.files[i];
+      // Pula placeholders do Drive Stream — gerar thumb forcaria download
+      if (f.cloudOnly) continue;
       if (f.type === "video") {
         if (!thumbCache[f.path]) queue.push(f);
         if (!resolutionCache[f.path]) resQueue.push(f);
@@ -504,22 +607,43 @@ function refreshFiles() {
       if (el) el.textContent = res;
     }
 
-    // Process thumbnails 1 at a time, update only that grid item
-    function processQueue(idx) {
-      if (idx >= queue.length) {
-        document.getElementById("statusText").textContent = "Pronto";
-        return;
-      }
-      // Pausa a fila enquanto o usuario arrasta para nao disputar I/O com o Premiere
-      if (thumbQueuePaused) {
-        document.getElementById("statusText").textContent = "Pausado (drag em andamento)";
-        setTimeout(function() { processQueue(idx); }, 300);
-        return;
-      }
-      document.getElementById("statusText").textContent = "Gerando thumbs... " + (idx + 1) + "/" + queue.length;
-      generateThumbFFmpeg(queue[idx].path, function(url) {
+    // Pool paralelo de geracao de thumbs:
+    // - Duas filas: visiveis (prioridade) e o resto
+    // - Ate THUMB_CONCURRENCY ffmpegs simultaneos
+    // - IntersectionObserver promove cards visiveis para a fila prioritaria
+    state.thumbQueueVisible = [];
+    state.thumbQueueRest = queue.slice();
+    state._thumbTotal = queue.length;
+    state._thumbDone = 0;
+    pumpThumbPool();
+    setupViewportObserver();
+    processResQueue(0);
+  }
+}
+
+// --- Worker pool de thumbs ---
+var THUMB_CONCURRENCY = 2;
+var thumbPoolActive = 0;
+
+function pumpThumbPool() {
+  if (!state.thumbQueueVisible) return;
+  // Consome a fila respeitando a pausa de drag e o limite de concorrencia
+  while (
+    !thumbQueuePaused &&
+    thumbPoolActive < THUMB_CONCURRENCY &&
+    (state.thumbQueueVisible.length + state.thumbQueueRest.length > 0)
+  ) {
+    var f = state.thumbQueueVisible.length > 0
+      ? state.thumbQueueVisible.shift()
+      : state.thumbQueueRest.shift();
+    if (!f) break;
+    thumbPoolActive++;
+    (function(file) {
+      generateThumbFFmpeg(file.path, function(url) {
+        thumbPoolActive--;
+        state._thumbDone = (state._thumbDone || 0) + 1;
         if (url) {
-          var el = document.querySelector('[data-filepath="' + CSS.escape(queue[idx].path) + '"] .thumbnail, [data-filepath="' + CSS.escape(queue[idx].path) + '"] .placeholder');
+          var el = document.querySelector('[data-filepath="' + CSS.escape(file.path) + '"] .thumbnail, [data-filepath="' + CSS.escape(file.path) + '"] .placeholder');
           if (el) {
             var img = document.createElement("img");
             img.className = "thumbnail";
@@ -528,12 +652,50 @@ function refreshFiles() {
             el.replaceWith(img);
           }
         }
-        processQueue(idx + 1);
+        var statusEl = document.getElementById("statusText");
+        var pending = state.thumbQueueVisible.length + state.thumbQueueRest.length + thumbPoolActive;
+        if (statusEl) {
+          statusEl.textContent = pending > 0
+            ? "Gerando thumbs... " + state._thumbDone + "/" + state._thumbTotal
+            : "Pronto";
+        }
+        pumpThumbPool();
       });
-    }
-    processQueue(0);
-    processResQueue(0);
+    })(f);
   }
+  if (thumbQueuePaused && (state.thumbQueueVisible.length + state.thumbQueueRest.length > 0)) {
+    var statusEl2 = document.getElementById("statusText");
+    if (statusEl2) statusEl2.textContent = "Pausado (drag em andamento)";
+  }
+}
+
+// IntersectionObserver: promove cards visiveis na viewport para a fila
+// prioritaria, fazendo as primeiras telas se popularem antes do resto.
+var _thumbIO = null;
+function setupViewportObserver() {
+  if (_thumbIO) { try { _thumbIO.disconnect(); } catch (e) {} _thumbIO = null; }
+  if (typeof IntersectionObserver === "undefined") return;
+  var grid = document.getElementById("grid");
+  if (!grid) return;
+  _thumbIO = new IntersectionObserver(function(entries) {
+    var promoted = false;
+    for (var i = 0; i < entries.length; i++) {
+      if (!entries[i].isIntersecting) continue;
+      var rel = entries[i].target.getAttribute("data-rel");
+      if (!rel) continue;
+      // Procura na fila do "resto" e move para a frente da fila visivel
+      for (var j = 0; j < state.thumbQueueRest.length; j++) {
+        if (toRelPath(state.thumbQueueRest[j].path) === rel) {
+          state.thumbQueueVisible.unshift(state.thumbQueueRest.splice(j, 1)[0]);
+          promoted = true;
+          break;
+        }
+      }
+    }
+    if (promoted) pumpThumbPool();
+  }, { root: grid, rootMargin: "200px" });
+  var items = grid.querySelectorAll(".grid-item");
+  for (var k = 0; k < items.length; k++) _thumbIO.observe(items[k]);
 }
 
 // --- Thumbnails (cached, no filesystem hit on re-render) ---
@@ -594,15 +756,33 @@ function getCacheDir() {
   return path.join(getStockFolder(), ".cache");
 }
 
-// Hash estavel do path completo (djb2). Evita colisao quando paths longos
-// compartilham um prefixo comum (ex: pastas do Google Drive no macOS).
-function hashPath(str) {
-  var h = 5381;
-  for (var i = 0; i < str.length; i++) {
-    h = ((h << 5) + h + str.charCodeAt(i)) | 0;
+// Converte um path absoluto para um path relativo a pasta de stock,
+// normalizado para barra "/" para que Windows e Mac gerem a mesma chave
+// para o mesmo arquivo logico (essencial em pastas compartilhadas via Drive).
+// Se o path estiver fora da pasta de stock, retorna o proprio path absoluto.
+function toRelPath(absPath) {
+  if (!absPath) return absPath;
+  try {
+    var path = require("path");
+    var rel = path.relative(getStockFolder(), absPath);
+    if (!rel || rel.indexOf("..") === 0) return absPath;
+    return rel.split(path.sep).join("/");
+  } catch (e) {
+    return absPath;
   }
-  // Inclui um trecho legivel do nome do arquivo + hash hex sem sinal
-  var base = String(str).replace(/[^a-zA-Z0-9]/g, "_");
+}
+
+// Hash estavel baseado no caminho RELATIVO a pasta de stock (djb2). Cache files
+// gerados com esse hash sao portaveis entre maquinas que compartilham a mesma
+// pasta via Google Drive — duas maquinas com a mesma estrutura logica
+// produzem o mesmo nome de arquivo de cache.
+function hashPath(absPath) {
+  var rel = toRelPath(absPath);
+  var h = 5381;
+  for (var i = 0; i < rel.length; i++) {
+    h = ((h << 5) + h + rel.charCodeAt(i)) | 0;
+  }
+  var base = String(rel).replace(/[^a-zA-Z0-9]/g, "_");
   var tail = base.substring(Math.max(0, base.length - 60));
   return tail + "_" + (h >>> 0).toString(16);
 }
@@ -749,7 +929,7 @@ function generateThumbFFmpeg(filePath, callback) {
 
   getVideoDuration(filePath, function(duration) {
     var seekTime = duration ? (duration / 2) : 1;
-    child.execFile(ffmpeg, [
+    var proc = child.execFile(ffmpeg, [
       "-ss", String(seekTime),
       "-i", filePath,
       "-vframes", "1",
@@ -758,6 +938,9 @@ function generateThumbFFmpeg(filePath, callback) {
       "-y",
       thumbFile
     ], { timeout: 15000 }, function(err) {
+      // Remove do array de processos ativos do pool
+      var idx = activeThumbChildren.indexOf(proc);
+      if (idx >= 0) activeThumbChildren.splice(idx, 1);
       if (err || !fs.existsSync(thumbFile)) {
         callback(null);
         return;
@@ -765,6 +948,7 @@ function generateThumbFFmpeg(filePath, callback) {
       thumbCache[filePath] = toFileURL(thumbFile);
       callback(thumbCache[filePath]);
     });
+    activeThumbChildren.push(proc);
   });
 }
 
@@ -817,6 +1001,8 @@ var hoverTimer = null;
 function onMouseEnter(el, fileIndex) {
   var file = state.files[fileIndex];
   if (!file || (file.type !== "video" && file.type !== "audio")) return;
+  // Nao gera preview para placeholders do Drive — forcaria download
+  if (file.cloudOnly) return;
 
   // Small delay to avoid triggering on quick mouse passes
   clearTimeout(hoverTimer);
@@ -920,10 +1106,11 @@ function cleanupPreview() {
 function onFileDragStart(e, fileIndex) {
   var file = state.files[fileIndex];
   // Libera CPU/disco para o Premiere durante o drag: mata proxy em andamento,
-  // pausa a fila de thumbs, e marca o estado global de drag.
+  // mata todos os ffmpeg de thumbs do pool, pausa a fila e marca drag.
   isDragging = true;
   thumbQueuePaused = true;
   killActiveProxyProc();
+  killActiveThumbChildren();
   cleanupPreview();
   // Para drop interno (categorias) — usa o indice
   e.dataTransfer.setData("text/plain", String(fileIndex));
@@ -966,7 +1153,10 @@ function onFileDragEnd(e) {
   // Libera a fila de thumbs apos um pequeno delay para o Premiere terminar
   // de ler o arquivo recem-droppado antes de voltarmos a usar disco/CPU.
   isDragging = false;
-  setTimeout(function() { thumbQueuePaused = false; }, 800);
+  setTimeout(function() {
+    thumbQueuePaused = false;
+    pumpThumbPool();
+  }, 800);
 }
 
 function onCatDragOver(e) {
@@ -987,7 +1177,7 @@ function onCatDrop(e, catId) {
   if (!file) return;
   file.category = catId;
   if (!state.fileCategories) state.fileCategories = {};
-  state.fileCategories[file.path] = catId;
+  state.fileCategories[toRelPath(file.path)] = catId;
   saveState();
   renderAll();
   var catName = "";
@@ -1004,7 +1194,7 @@ function onFavoritesDrop(e) {
   var file = state.files[fileIndex];
   if (!file) return;
   if (!state.favoriteFiles) state.favoriteFiles = {};
-  state.favoriteFiles[file.path] = true;
+  state.favoriteFiles[toRelPath(file.path)] = true;
   saveState();
   renderAll();
   showToast("Adicionado aos favoritos: " + file.name);
@@ -1030,7 +1220,7 @@ function getFilteredFiles() {
   return state.files.filter(function(f) {
     if (state.activeFormat !== "all" && f.type !== state.activeFormat) return false;
     if (state.activeCategory === "__favorites") {
-      if (!state.favoriteFiles || !state.favoriteFiles[f.path]) return false;
+      if (!state.favoriteFiles || !state.favoriteFiles[toRelPath(f.path)]) return false;
     } else if (state.activeCategory !== "all") {
       if (f.category !== state.activeCategory) {
         if (f.category && f.category.indexOf(state.activeCategory + "/") === 0) {
@@ -1214,11 +1404,12 @@ function closeModal(e) {
 
 function toggleFileFavorite(filePath) {
   if (!state.favoriteFiles) state.favoriteFiles = {};
-  if (state.favoriteFiles[filePath]) {
-    delete state.favoriteFiles[filePath];
+  var key = toRelPath(filePath);
+  if (state.favoriteFiles[key]) {
+    delete state.favoriteFiles[key];
     showToast("Removido dos favoritos");
   } else {
-    state.favoriteFiles[filePath] = true;
+    state.favoriteFiles[key] = true;
     showToast("Adicionado aos favoritos");
   }
   saveState();
@@ -1243,7 +1434,7 @@ function showContextMenu(e, fileIndex) {
     "z-index:999;box-shadow:0 4px 12px #00000066;";
 
   // Favorite toggle
-  var isFav = state.favoriteFiles && state.favoriteFiles[file.path];
+  var isFav = state.favoriteFiles && state.favoriteFiles[toRelPath(file.path)];
   var favItem = document.createElement("div");
   favItem.style.cssText = "padding:5px 12px;font-size:11px;cursor:pointer;color:" + (isFav ? "#e8a634" : "var(--text-primary)") + ";display:flex;align-items:center;gap:8px;";
   favItem.innerHTML =
@@ -1286,7 +1477,7 @@ function showContextMenu(e, fileIndex) {
     item.onclick = function() {
       file.category = cat.id;
       if (!state.fileCategories) state.fileCategories = {};
-      state.fileCategories[file.path] = cat.id;
+      state.fileCategories[toRelPath(file.path)] = cat.id;
       saveState();
       renderGrid();
       menu.remove();
@@ -1388,7 +1579,7 @@ function getFavoriteCount() {
   if (!state.favoriteFiles) return 0;
   var count = 0;
   for (var i = 0; i < state.files.length; i++) {
-    if (state.favoriteFiles[state.files[i].path]) count++;
+    if (state.favoriteFiles[toRelPath(state.files[i].path)]) count++;
   }
   return count;
 }
@@ -1639,8 +1830,17 @@ function renderGrid() {
           '</div>';
     }
 
-    return '<div class="grid-item" ' +
+    var cloudBadge = f.cloudOnly
+      ? '<span class="cloud-badge" title="Arquivo na nuvem (nao baixado)">' +
+          '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">' +
+            '<path d="M18 10h-1.26A8 8 0 109 20h9a5 5 0 000-10z"/>' +
+          '</svg>' +
+        '</span>'
+      : '';
+
+    return '<div class="grid-item' + (f.cloudOnly ? ' cloud-only' : '') + '" ' +
       'data-filepath="' + f.path.replace(/"/g, '&quot;') + '" ' +
+      'data-rel="' + toRelPath(f.path).replace(/"/g, '&quot;') + '" ' +
       'draggable="true" ' +
       'ondragstart="onFileDragStart(event, ' + idx + ')" ' +
       'ondragend="onFileDragEnd(event)" ' +
@@ -1648,8 +1848,9 @@ function renderGrid() {
       'oncontextmenu="showContextMenu(event, ' + idx + ')" ' +
       'onmouseenter="onMouseEnter(this, ' + idx + ')" ' +
       'onmouseleave="onMouseLeave(this)" ' +
-      'title="' + f.name + '">' +
+      'title="' + f.name + (f.cloudOnly ? " (na nuvem)" : "") + '">' +
       thumbContent +
+      cloudBadge +
       '<span class="file-badge ' + badgeClass + '">' + f.ext + '</span>' +
       '<span class="res-badge">' + res + '</span>' +
       '<button class="import-btn" onclick="event.stopPropagation(); importToProject(' + idx + ')" title="Importar no projeto">' +
@@ -1660,6 +1861,10 @@ function renderGrid() {
       '<span class="file-name">' + f.name.replace(/\.[^.]+$/, "") + '</span>' +
     '</div>';
   }).join("");
+
+  // Reconfigura o IntersectionObserver apos cada render para que cards
+  // visiveis sejam priorizados na fila de geracao de thumbs
+  if (typeof setupViewportObserver === "function") setupViewportObserver();
 }
 
 var selectedCategories = {};
