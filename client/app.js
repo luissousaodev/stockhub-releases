@@ -3,6 +3,22 @@ var cs = new CSInterface();
 var isWindows = process.platform === "win32";
 var isMac = process.platform === "darwin";
 
+// Estado global de drag — usado para pausar trabalho pesado de ffmpeg
+// (geracao de proxy/thumb) enquanto o usuario arrasta um arquivo para
+// o Premiere, evitando disputa de CPU/disco.
+var isDragging = false;
+// Processo ffmpeg ativo gerando proxy de hover (cancelavel ao sair do hover/drag)
+var activeProxyProc = null;
+// Sinalizador para pausar a fila de geracao de thumbs em background
+var thumbQueuePaused = false;
+
+function killActiveProxyProc() {
+  if (activeProxyProc) {
+    try { activeProxyProc.kill("SIGKILL"); } catch (e) {}
+    activeProxyProc = null;
+  }
+}
+
 // Converte caminho do filesystem para URL file:// valida em Windows e macOS.
 // Windows: C:\foo\bar -> file:///C:/foo/bar
 // macOS:   /Users/foo -> file:///Users/foo
@@ -494,6 +510,12 @@ function refreshFiles() {
         document.getElementById("statusText").textContent = "Pronto";
         return;
       }
+      // Pausa a fila enquanto o usuario arrasta para nao disputar I/O com o Premiere
+      if (thumbQueuePaused) {
+        document.getElementById("statusText").textContent = "Pausado (drag em andamento)";
+        setTimeout(function() { processQueue(idx); }, 300);
+        return;
+      }
       document.getElementById("statusText").textContent = "Gerando thumbs... " + (idx + 1) + "/" + queue.length;
       generateThumbFFmpeg(queue[idx].path, function(url) {
         if (url) {
@@ -764,7 +786,9 @@ function generateProxyFFmpeg(filePath, callback) {
     return;
   }
 
-  child.execFile(ffmpeg, [
+  // Mata qualquer proxy anterior que ainda esteja rodando — so um por vez
+  killActiveProxyProc();
+  activeProxyProc = child.execFile(ffmpeg, [
     "-i", filePath,
     "-vf", "scale=-2:360",
     "-c:v", "libx264",
@@ -776,6 +800,7 @@ function generateProxyFFmpeg(filePath, callback) {
     "-y",
     proxyFile
   ], { timeout: 60000 }, function(err) {
+    activeProxyProc = null;
     if (err || !fs.existsSync(proxyFile)) {
       callback(null);
       return;
@@ -875,6 +900,8 @@ function createPreviewAudio(el, src) {
 function onMouseLeave(el) {
   clearTimeout(hoverTimer);
   cleanupPreview();
+  // Cancela transcode de proxy iniciado por hover que ainda esteja rodando
+  killActiveProxyProc();
 }
 
 function cleanupPreview() {
@@ -892,6 +919,12 @@ function cleanupPreview() {
 // --- Drag (categorize internamente + drop nativo na timeline do Premiere) ---
 function onFileDragStart(e, fileIndex) {
   var file = state.files[fileIndex];
+  // Libera CPU/disco para o Premiere durante o drag: mata proxy em andamento,
+  // pausa a fila de thumbs, e marca o estado global de drag.
+  isDragging = true;
+  thumbQueuePaused = true;
+  killActiveProxyProc();
+  cleanupPreview();
   // Para drop interno (categorias) — usa o indice
   e.dataTransfer.setData("text/plain", String(fileIndex));
   e.dataTransfer.effectAllowed = "copyMove";
@@ -930,6 +963,10 @@ function onFileDragEnd(e) {
   if (el) el.classList.remove("dragging");
   var cats = document.querySelectorAll(".cat-item");
   for (var i = 0; i < cats.length; i++) cats[i].classList.remove("drag-over");
+  // Libera a fila de thumbs apos um pequeno delay para o Premiere terminar
+  // de ler o arquivo recem-droppado antes de voltarmos a usar disco/CPU.
+  isDragging = false;
+  setTimeout(function() { thumbQueuePaused = false; }, 800);
 }
 
 function onCatDragOver(e) {
