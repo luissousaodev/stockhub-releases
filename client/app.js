@@ -572,6 +572,19 @@ function getCacheDir() {
   return path.join(getStockFolder(), ".cache");
 }
 
+// Hash estavel do path completo (djb2). Evita colisao quando paths longos
+// compartilham um prefixo comum (ex: pastas do Google Drive no macOS).
+function hashPath(str) {
+  var h = 5381;
+  for (var i = 0; i < str.length; i++) {
+    h = ((h << 5) + h + str.charCodeAt(i)) | 0;
+  }
+  // Inclui um trecho legivel do nome do arquivo + hash hex sem sinal
+  var base = String(str).replace(/[^a-zA-Z0-9]/g, "_");
+  var tail = base.substring(Math.max(0, base.length - 60));
+  return tail + "_" + (h >>> 0).toString(16);
+}
+
 function ensureCacheDir() {
   var fs = require("fs");
   var dir = getCacheDir();
@@ -703,7 +716,7 @@ function generateThumbFFmpeg(filePath, callback) {
   if (!ffmpeg) { callback(null); return; }
 
   var cacheDir = ensureCacheDir();
-  var hash = filePath.replace(/[^a-zA-Z0-9]/g, "_").substring(0, 120);
+  var hash = hashPath(filePath);
   var thumbFile = path.join(cacheDir, hash + "_thumb.jpg");
 
   if (fs.existsSync(thumbFile)) {
@@ -742,7 +755,7 @@ function generateProxyFFmpeg(filePath, callback) {
   if (!ffmpeg) { callback(null); return; }
 
   var cacheDir = ensureCacheDir();
-  var hash = filePath.replace(/[^a-zA-Z0-9]/g, "_").substring(0, 120);
+  var hash = hashPath(filePath);
   var proxyFile = path.join(cacheDir, hash + "_proxy.mp4");
 
   if (fs.existsSync(proxyFile)) {
