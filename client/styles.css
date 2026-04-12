@@ -1406,3 +1406,46 @@ html, body {
 .changelog-added li::before { color: var(--green); }
 .changelog-fixed li::before { color: var(--yellow); }
 .changelog-changed li::before { color: var(--accent); }
+
+/* =============================================================================
+   Update Modal
+   ============================================================================= */
+
+/* Modal de update ligeiramente mais largo que o padrão (300px) */
+.update-modal {
+  width: 360px;
+}
+
+/* Bloco de notas de versão dentro do modal de update */
+.update-notes {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  margin-bottom: 14px;
+  max-height: 100px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Estado desabilitado dos botões durante o download */
+.modal-actions .btn:disabled,
+.modal-actions .btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Animação de progresso indeterminado (sem Content-Length) */
+@keyframes progressIndeterminate {
+  0%   { transform: translateX(-100%); width: 50%; }
+  100% { transform: translateX(250%);  width: 50%; }
+}
+.update-progress-indeterminate {
+  animation: progressIndeterminate 1.4s infinite linear;
+  position: absolute;
+}
