@@ -213,6 +213,41 @@ function importFileToTimeline(filePath) {
     }
 }
 
+// Move a file from root to StockHub bin (used after native CEP drag-drop)
+function moveFileToStockHubBin(filePath) {
+    try {
+        var project = app.project;
+        if (!project) return JSON.stringify({ success: false });
+        var normalizedPath = filePath.replace(/\\/g, "/").toLowerCase();
+        var rootItem = project.rootItem;
+        var stockHubBin = null;
+        var targetItem = null;
+
+        // Find the item in root level (not inside any bin)
+        for (var i = 0; i < rootItem.children.numItems; i++) {
+            var child = rootItem.children[i];
+            if (child.type === ProjectItemType.BIN) {
+                if (child.name === "StockHub") stockHubBin = child;
+                continue;
+            }
+            try {
+                var mediaPath = child.getMediaPath();
+                if (mediaPath && mediaPath.replace(/\\/g, "/").toLowerCase() === normalizedPath) {
+                    targetItem = child;
+                }
+            } catch (e) {}
+        }
+
+        if (!targetItem) return JSON.stringify({ success: false, reason: "not_in_root" });
+        if (!stockHubBin) stockHubBin = rootItem.createBin("StockHub");
+
+        targetItem.moveBin(stockHubBin);
+        return JSON.stringify({ success: true });
+    } catch (e) {
+        return JSON.stringify({ success: false, error: e.toString() });
+    }
+}
+
 function getProjectPath() {
     try {
         if (app.project && app.project.path) {

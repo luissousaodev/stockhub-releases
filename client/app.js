@@ -1,6 +1,10 @@
 // StockHub - CEP Extension for Premiere Pro
 var APP_VERSION = "1.1.0";
 var cs = new CSInterface();
+var fs = require("fs");
+var path = require("path");
+var child = require("child_process");
+var os = require("os");
 var isWindows = process.platform === "win32";
 var isMac = process.platform === "darwin";
 
@@ -82,7 +86,6 @@ var state = {
 
 // --- Stock Folder ---
 function getDefaultStockFolder() {
-  var path = require("path");
   var home = process.env.HOME || process.env.USERPROFILE || "";
   return path.join(home, "StockHub");
 }
@@ -93,8 +96,6 @@ function getStockFolder() {
 
 function ensureStockFolder() {
   try {
-    var fs = require("fs");
-    var path = require("path");
     var folder = getStockFolder();
     if (!fs.existsSync(folder)) {
       fs.mkdirSync(folder, { recursive: true });
@@ -117,11 +118,7 @@ function openStockFolder() {
 }
 
 function changeStockFolder() {
-  var child = require("child_process");
   if (isWindows) {
-    var fs = require("fs");
-    var path = require("path");
-    var os = require("os");
     var psFile = path.join(os.tmpdir(), "stockhub_folder_picker.ps1");
     var psContent = [
       'Add-Type -AssemblyName System.Windows.Forms',
@@ -262,7 +259,6 @@ function resetStockFolder() {
 
 // --- Storage ---
 function getStoragePath() {
-  var path = require("path");
   var dataDir = cs.getSystemPath(SystemPath.USER_DATA);
   return path.join(dataDir, "stockhub-data.json");
 }
@@ -272,7 +268,6 @@ function getStoragePath() {
 // antigo (dataSchemaVersion < 2). Retorna o novo objeto.
 function migrateAbsoluteKeysToRelative(dict, stockFolder) {
   if (!dict) return dict;
-  var path = require("path");
   var out = {};
   var keys = Object.keys(dict);
   for (var i = 0; i < keys.length; i++) {
@@ -294,7 +289,6 @@ function migrateAbsoluteKeysToRelative(dict, stockFolder) {
 
 function loadState() {
   try {
-    var fs = require("fs");
     var filePath = getStoragePath();
     if (fs.existsSync(filePath)) {
       var data = JSON.parse(fs.readFileSync(filePath, "utf-8"));
@@ -302,7 +296,6 @@ function loadState() {
       if (data.gridSize) state.gridSize = data.gridSize;
       if (data.fileCategories) state.fileCategories = data.fileCategories;
       if (data.customFolder) {
-        var fs = require("fs");
         if (fs.existsSync(data.customFolder)) {
           state.customFolder = data.customFolder;
         } else {
@@ -338,8 +331,6 @@ function loadState() {
 
 function saveState() {
   try {
-    var fs = require("fs");
-    var path = require("path");
     var filePath = getStoragePath();
     var dataDir = path.dirname(filePath);
     if (!fs.existsSync(dataDir)) {
@@ -369,8 +360,6 @@ function saveState() {
 var changelogData = null;
 function loadChangelog() {
   try {
-    var fs = require("fs");
-    var path = require("path");
     var file = path.join(__dirname, "..", "CHANGELOG.json");
     if (fs.existsSync(file)) {
       changelogData = JSON.parse(fs.readFileSync(file, "utf-8"));
@@ -398,19 +387,19 @@ function showAboutModal() {
   var container = document.getElementById("modalContainer");
   container.innerHTML =
     '<div class="modal-overlay" onclick="closeModal(event)">' +
-      '<div class="modal about-modal" onclick="event.stopPropagation()" style="max-width:340px;text-align:center;">' +
-        '<div style="margin-bottom:12px;">' +
-          '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">' +
+      '<div class="modal about-modal" onclick="event.stopPropagation()">' +
+        '<div style="margin-bottom:16px;opacity:0.8;">' +
+          '<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">' +
             '<rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>' +
           '</svg>' +
         '</div>' +
-        '<h3 style="margin:0 0 4px;">StockHub</h3>' +
-        '<p style="color:var(--text-muted);font-size:11px;margin:0 0 8px;">v' + APP_VERSION + '</p>' +
-        '<p style="font-size:11px;margin:0 0 12px;color:var(--text-secondary);">Painel de assets para Adobe Premiere Pro.<br>Centraliza stocks em um unico lugar com preview, categorias e importacao direta.</p>' +
-        '<p style="font-size:10px;color:var(--text-muted);margin:0 0 16px;">Desenvolvido por Luis Sousa</p>' +
-        '<div class="modal-actions" style="justify-content:center;gap:8px;">' +
-          '<button class="btn" onclick="showChangelogModal()">Ver changelog</button>' +
-          '<button class="btn btn-primary" onclick="closeModal()">Fechar</button>' +
+        '<h3 style="margin:0 0 6px;font-size:18px;">StockHub</h3>' +
+        '<p style="color:var(--accent);font-size:12px;font-weight:600;margin:0 0 12px;">v' + APP_VERSION + '</p>' +
+        '<p style="font-size:11px;margin:0 0 16px;color:var(--text-secondary);line-height:1.6;">Painel de assets para Adobe Premiere Pro.<br>Centraliza stocks em um unico lugar com preview, categorias e importacao direta.</p>' +
+        '<p style="font-size:10px;color:var(--text-muted);margin:0 0 20px;">Desenvolvido por Luis Sousa</p>' +
+        '<div style="display:flex;gap:8px;justify-content:center;">' +
+          '<button class="btn" onclick="showChangelogModal()" style="flex:1;">Ver changelog</button>' +
+          '<button class="btn btn-primary" onclick="closeModal()" style="flex:1;">Fechar</button>' +
         '</div>' +
       '</div>' +
     '</div>';
@@ -449,13 +438,18 @@ function showChangelogModal() {
   var container = document.getElementById("modalContainer");
   container.innerHTML =
     '<div class="modal-overlay" onclick="closeModal(event)">' +
-      '<div class="modal changelog-modal" onclick="event.stopPropagation()" style="max-width:480px;">' +
-        '<h3 style="margin:0 0 12px;">Changelog</h3>' +
-        '<div class="changelog-list" style="max-height:400px;overflow-y:auto;">' +
+      '<div class="modal changelog-modal" onclick="event.stopPropagation()">' +
+        '<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;">' +
+          '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+            '<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>' +
+          '</svg>' +
+          '<h3 style="margin:0;font-size:14px;">Changelog</h3>' +
+        '</div>' +
+        '<div class="changelog-list">' +
           renderChangelogHTML(versions) +
         '</div>' +
-        '<div class="modal-actions" style="margin-top:12px;">' +
-          '<button class="btn btn-primary" onclick="closeModal()">Fechar</button>' +
+        '<div class="modal-actions" style="margin-top:14px;">' +
+          '<button class="btn btn-primary" onclick="closeModal()" style="width:100%;">Fechar</button>' +
         '</div>' +
       '</div>' +
     '</div>';
@@ -475,14 +469,19 @@ function showWhatsNewModal() {
   var container = document.getElementById("modalContainer");
   container.innerHTML =
     '<div class="modal-overlay" onclick="closeWhatsNewModal(event)">' +
-      '<div class="modal changelog-modal" onclick="event.stopPropagation()" style="max-width:480px;">' +
-        '<h3 style="margin:0 0 4px;">O que ha de novo</h3>' +
-        '<p style="color:var(--text-muted);font-size:10px;margin:0 0 12px;">StockHub v' + APP_VERSION + '</p>' +
-        '<div class="changelog-list" style="max-height:400px;overflow-y:auto;">' +
+      '<div class="modal changelog-modal" onclick="event.stopPropagation()">' +
+        '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">' +
+          '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+            '<path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>' +
+          '</svg>' +
+          '<h3 style="margin:0;font-size:14px;">O que ha de novo</h3>' +
+        '</div>' +
+        '<p style="color:var(--text-muted);font-size:10px;margin:0 0 14px;">StockHub v' + APP_VERSION + '</p>' +
+        '<div class="changelog-list">' +
           renderChangelogHTML(newer) +
         '</div>' +
-        '<div class="modal-actions" style="margin-top:12px;">' +
-          '<button class="btn btn-primary" onclick="closeWhatsNewModal()">Entendi</button>' +
+        '<div class="modal-actions" style="margin-top:14px;">' +
+          '<button class="btn btn-primary" onclick="closeWhatsNewModal()" style="width:100%;">Entendi</button>' +
         '</div>' +
       '</div>' +
     '</div>';
@@ -556,7 +555,6 @@ function closeWelcomeModal() {
 
 // --- Staging Local ---
 function getDefaultStagingFolder() {
-  var path = require("path");
   var home = process.env.HOME || process.env.USERPROFILE || "";
   return path.join(home, "StockHub_staging");
 }
@@ -566,8 +564,6 @@ function getStagingFolder() {
 
 function stageFileIfNeeded(file) {
   if (!file || !file.cloudOnly) return file.path;
-  var fs = require("fs");
-  var path = require("path");
   var rel = toRelPath(file.path);
   var stagedPath = path.join(getStagingFolder(), rel);
   // Se ja existe com mesmo tamanho, reusar
@@ -591,8 +587,6 @@ function stageFileIfNeeded(file) {
 
 function getStagedPathIfExists(file) {
   if (!file || !file.cloudOnly) return null;
-  var fs = require("fs");
-  var path = require("path");
   var rel = toRelPath(file.path);
   var stagedPath = path.join(getStagingFolder(), rel);
   try {
@@ -618,8 +612,6 @@ function changeStagingFolder() {
 }
 
 function getStagingSize() {
-  var fs = require("fs");
-  var path = require("path");
   var folder = getStagingFolder();
   var total = 0;
   function walk(dir) {
@@ -640,7 +632,6 @@ function getStagingSize() {
 }
 
 function clearStagingFolder() {
-  var fs = require("fs");
   var folder = getStagingFolder();
   try {
     fs.rmSync(folder, { recursive: true, force: true });
@@ -656,8 +647,6 @@ function clearStagingFolder() {
 // --- Auto-update via Drive ---
 function checkForUpdates() {
   try {
-    var fs = require("fs");
-    var path = require("path");
     var updateDir = path.join(getStockFolder(), "stockhub-updates");
     var versionFile = path.join(updateDir, "version.json");
     if (!fs.existsSync(versionFile)) return;
@@ -691,8 +680,6 @@ function showUpdateBanner(version, notes) {
 }
 
 function copyDirSync(src, dest) {
-  var fs = require("fs");
-  var path = require("path");
   if (!fs.existsSync(src)) return;
   fs.mkdirSync(dest, { recursive: true });
   var items = fs.readdirSync(src, { withFileTypes: true });
@@ -708,8 +695,6 @@ function copyDirSync(src, dest) {
 }
 
 function performUpdate(version) {
-  var fs = require("fs");
-  var path = require("path");
   var extensionDir = path.join(__dirname, "..");
   var latestDir = path.join(getStockFolder(), "stockhub-updates", "latest");
 
@@ -761,8 +746,6 @@ function getFileType(ext) {
 }
 
 function scanFolder(folderPath) {
-  var fs = require("fs");
-  var path = require("path");
   var files = [];
 
   try {
@@ -849,8 +832,6 @@ var _watchedFolder = null;
 var POLL_INTERVAL_MS = 5000;
 
 function buildSnapshot(rootDir) {
-  var fs = require("fs");
-  var path = require("path");
   var snap = {};
   function walk(dir) {
     var items;
@@ -903,7 +884,6 @@ function stopFolderWatcher() {
 }
 
 function startFolderWatcher(folder) {
-  var fs = require("fs");
   if (_watchedFolder === folder && _watchInterval) return;
   stopFolderWatcher();
   if (!folder || !fs.existsSync(folder)) return;
@@ -943,7 +923,6 @@ if (typeof window !== "undefined") {
 }
 
 function refreshFiles() {
-  var fs = require("fs");
   var folder = getStockFolder();
   if (state.customFolder && !fs.existsSync(state.customFolder)) {
     var invalidFolder = state.customFolder;
@@ -1100,8 +1079,6 @@ var thumbLookupCache = {};
 function getThumbnail(file) {
   if (thumbLookupCache[file.path] !== undefined) return thumbLookupCache[file.path];
   try {
-    var path = require("path");
-    var fs = require("fs");
     var dir = path.dirname(file.path);
     var base = path.basename(file.path, path.extname(file.path));
     var thumbExts = [".png", ".jpg", ".jpeg", ".gif"];
@@ -1149,7 +1126,6 @@ var ffmpegPath = null;
 var ffprobePath = null;
 
 function getCacheDir() {
-  var path = require("path");
   return path.join(getStockFolder(), ".cache");
 }
 
@@ -1160,7 +1136,6 @@ function getCacheDir() {
 function toRelPath(absPath) {
   if (!absPath) return absPath;
   try {
-    var path = require("path");
     var rel = path.relative(getStockFolder(), absPath);
     if (!rel || rel.indexOf("..") === 0) return absPath;
     return rel.split(path.sep).join("/");
@@ -1185,7 +1160,6 @@ function hashPath(absPath) {
 }
 
 function ensureCacheDir() {
-  var fs = require("fs");
   var dir = getCacheDir();
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
@@ -1195,9 +1169,6 @@ function ensureCacheDir() {
 
 function findFFmpeg() {
   if (ffmpegPath) return ffmpegPath;
-  var fs = require("fs");
-  var path = require("path");
-  var child = require("child_process");
   var ffprobeBin = isWindows ? "ffprobe.exe" : "ffprobe";
 
   // Try system PATH lookup
@@ -1270,7 +1241,6 @@ function findFFmpeg() {
 
 function getVideoDuration(filePath, callback) {
   if (!ffprobePath) { callback(null); return; }
-  var child = require("child_process");
   child.execFile(ffprobePath, [
     "-v", "error",
     "-show_entries", "format=duration",
@@ -1286,7 +1256,6 @@ function getVideoDuration(filePath, callback) {
 function getVideoResolution(filePath, callback) {
   if (resolutionCache[filePath]) { callback(resolutionCache[filePath]); return; }
   if (!ffprobePath) { callback(null); return; }
-  var child = require("child_process");
   child.execFile(ffprobePath, [
     "-v", "error",
     "-select_streams", "v:0",
@@ -1307,9 +1276,6 @@ function getVideoResolution(filePath, callback) {
 }
 
 function generateThumbFFmpeg(filePath, callback) {
-  var path = require("path");
-  var fs = require("fs");
-  var child = require("child_process");
 
   var ffmpeg = findFFmpeg();
   if (!ffmpeg) { callback(null); return; }
@@ -1350,9 +1316,6 @@ function generateThumbFFmpeg(filePath, callback) {
 }
 
 function generateProxyFFmpeg(filePath, callback) {
-  var path = require("path");
-  var fs = require("fs");
-  var child = require("child_process");
 
   var ffmpeg = findFFmpeg();
   if (!ffmpeg) { callback(null); return; }
@@ -1576,11 +1539,23 @@ function onFileDragStart(e, fileIndex) {
   } catch (errImg) {}
 }
 
-function onFileDragEnd(e) {
+function onFileDragEnd(e, fileIndex) {
   var el = e.target.closest(".grid-item");
   if (el) el.classList.remove("dragging");
   var cats = document.querySelectorAll(".cat-item");
   for (var i = 0; i < cats.length; i++) cats[i].classList.remove("drag-over");
+
+  // Move o arquivo da raiz para a bin StockHub (o drop nativo do Premiere
+  // importa na raiz — precisamos mover para manter organizado)
+  var file = state.files[fileIndex];
+  if (file && file.path) {
+    var dragPath = getStagedPathIfExists(file) || file.path;
+    var escaped = dragPath.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+    setTimeout(function() {
+      cs.evalScript("moveFileToStockHubBin('" + escaped + "')");
+    }, 500);
+  }
+
   // Libera a fila de thumbs apos um pequeno delay para o Premiere terminar
   // de ler o arquivo recem-droppado antes de voltarmos a usar disco/CPU.
   isDragging = false;
@@ -2279,7 +2254,7 @@ function renderGrid() {
       'data-rel="' + toRelPath(f.path).replace(/"/g, '&quot;') + '" ' +
       'draggable="true" ' +
       'ondragstart="onFileDragStart(event, ' + idx + ')" ' +
-      'ondragend="onFileDragEnd(event)" ' +
+      'ondragend="onFileDragEnd(event, ' + idx + ')" ' +
       'ondblclick="onDoubleClick(' + idx + ')" ' +
       'oncontextmenu="showContextMenu(event, ' + idx + ')" ' +
       'onmouseenter="onMouseEnter(this, ' + idx + ')" ' +
@@ -2434,14 +2409,11 @@ function confirmUserId() {
 
 // --- Event Tracking (JSONL) ---
 function getEventsDir() {
-  var path = require("path");
   return path.join(getStockFolder(), "stockhub-data", "events");
 }
 
 function trackEvent(file, action) {
   if (!state.userId) return;
-  var fs = require("fs");
-  var path = require("path");
   var now = new Date();
   var dateStr = now.toISOString().slice(0, 10); // YYYY-MM-DD
   var dayDir = path.join(getEventsDir(), dateStr);
@@ -2473,8 +2445,6 @@ function trackEvent(file, action) {
 
 // --- Event Reading & Aggregation ---
 function readEvents(startDate, endDate, filters) {
-  var fs = require("fs");
-  var path = require("path");
   var eventsDir = getEventsDir();
   var events = [];
 
@@ -2589,10 +2559,6 @@ function exportEventsCSV(events) {
   }
 
   var csv = lines.join("\n");
-  var path = require("path");
-  var fs = require("fs");
-  var child = require("child_process");
-  var os = require("os");
   var defaultName = "stockhub-export-" + new Date().toISOString().slice(0, 10) + ".csv";
 
   if (isWindows) {
