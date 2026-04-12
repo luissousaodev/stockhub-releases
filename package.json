@@ -1,0 +1,10 @@
+{
+  "name": "stockhub",
+  "version": "1.1.0",
+  "description": "Painel de assets para Adobe Premiere Pro",
+  "author": "Luis Sousa",
+  "private": true,
+  "scripts": {
+    "package": "echo 'TODO: build ZXP'"
+  }
+}

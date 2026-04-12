@@ -1,32 +1,29 @@
-# --- Dados do usuário (gerados em runtime) ---
-*.json
-!package.json
+# Cache e dados de usuario
+.cache/
+stockhub-data.json
 
-# --- Miniaturas e cache ---
-thumbs/
-.thumbcache/
-*.tmp
+# Build artifacts
+*.zxp
+dist/
+build/
 
-# --- Logs ---
-*.log
-logs/
+# Debug
+.debug
 
-# --- Sistema operacional ---
+# OS
 .DS_Store
 Thumbs.db
 desktop.ini
 
-# --- Editores ---
-.vscode/
-.idea/
-*.suo
-*.user
-*.swp
-*.swo
-
-# --- Node (se usar dependências externas no futuro) ---
+# Node
 node_modules/
 npm-debug.log*
 
-# --- Adobe CEP (gerado pelo host) ---
-.debug
+# Editores
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temp
+*.tmp

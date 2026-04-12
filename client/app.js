@@ -5,6 +5,7 @@ var fs = require("fs");
 var path = require("path");
 var child = require("child_process");
 var os = require("os");
+var https = require("https");
 var isWindows = process.platform === "win32";
 var isMac = process.platform === "darwin";
 
@@ -644,26 +645,62 @@ function clearStagingFolder() {
   }
 }
 
-// --- Auto-update via Drive ---
-function checkForUpdates() {
-  try {
-    var updateDir = path.join(getStockFolder(), "stockhub-updates");
-    var versionFile = path.join(updateDir, "version.json");
-    if (!fs.existsSync(versionFile)) return;
-    var remote = JSON.parse(fs.readFileSync(versionFile, "utf-8"));
-    if (!remote.version) return;
-    if (compareSemver(remote.version, APP_VERSION) > 0) {
-      showUpdateBanner(remote.version, remote.notes || "");
+// --- Auto-update via HTTPS ---
+// URL fixa que sempre aponta para o version.json mais recente.
+// Atualize para o seu repositorio real de releases.
+var UPDATE_CHECK_URL = "https://raw.githubusercontent.com/luissousa/stockhub-releases/main/version.json";
+
+// Armazena a downloadUrl da versao remota para uso no performUpdate
+var pendingUpdateUrl = null;
+
+function httpsGet(url, cb) {
+  https.get(url, function(res) {
+    if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+      return httpsGet(res.headers.location, cb);
     }
-  } catch (e) {
-    // Silencioso se nao encontrar — normal quando nao ha update
-  }
+    if (res.statusCode !== 200) {
+      return cb(new Error("HTTP " + res.statusCode));
+    }
+    var data = "";
+    res.on("data", function(c) { data += c; });
+    res.on("end", function() { cb(null, data); });
+  }).on("error", function(e) { cb(e); });
+}
+
+function downloadFile(url, dest, cb) {
+  var file = fs.createWriteStream(dest);
+  https.get(url, function(res) {
+    if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+      file.close();
+      try { fs.unlinkSync(dest); } catch (e) {}
+      return downloadFile(res.headers.location, dest, cb);
+    }
+    if (res.statusCode !== 200) {
+      file.close();
+      return cb(new Error("HTTP " + res.statusCode));
+    }
+    res.pipe(file);
+    file.on("finish", function() { file.close(function() { cb(null); }); });
+  }).on("error", function(e) { file.close(); cb(e); });
+}
+
+function checkForUpdates() {
+  httpsGet(UPDATE_CHECK_URL, function(err, body) {
+    if (err) return;
+    try {
+      var remote = JSON.parse(body);
+      if (remote.version && compareSemver(remote.version, APP_VERSION) > 0) {
+        pendingUpdateUrl = remote.downloadUrl || null;
+        showUpdateBanner(remote.version, remote.notes || "");
+      }
+    } catch (e) {}
+  });
 }
 
 function showUpdateBanner(version, notes) {
   if (document.getElementById("updateBanner")) return;
-  var app = document.getElementById("app");
-  if (!app) return;
+  var appEl = document.getElementById("app");
+  if (!appEl) return;
   var banner = document.createElement("div");
   banner.id = "updateBanner";
   banner.className = "update-banner";
@@ -675,8 +712,8 @@ function showUpdateBanner(version, notes) {
       '<span>StockHub <strong>v' + version + '</strong> disponivel' + (notes ? ' — ' + notes : '') + '</span>' +
     '</div>' +
     '<button class="btn" onclick="performUpdate(\'' + version + '\')" style="background:#ffffff22;border:none;color:#fff;font-size:10px;padding:3px 10px;">Atualizar agora</button>' +
-    '<span onclick="this.parentElement.remove()" style="cursor:pointer;opacity:0.7;padding:0 4px;font-size:14px;">✕</span>';
-  app.insertBefore(banner, app.firstChild);
+    '<span onclick="this.parentElement.remove()" style="cursor:pointer;opacity:0.7;padding:0 4px;font-size:14px;">\u2715</span>';
+  appEl.insertBefore(banner, appEl.firstChild);
 }
 
 function copyDirSync(src, dest) {
@@ -694,46 +731,117 @@ function copyDirSync(src, dest) {
   }
 }
 
+function rmDirSync(dir) {
+  if (!fs.existsSync(dir)) return;
+  var items = fs.readdirSync(dir, { withFileTypes: true });
+  for (var i = 0; i < items.length; i++) {
+    var p = path.join(dir, items[i].name);
+    if (items[i].isDirectory()) { rmDirSync(p); } else { fs.unlinkSync(p); }
+  }
+  fs.rmdirSync(dir);
+}
+
+// Encontra a raiz da extensao dentro do ZIP extraido (pode ter pasta wrapper)
+function findExtractedRoot(dir) {
+  var items = fs.readdirSync(dir);
+  // Se tem CSXS/ ou client/ diretamente, e a raiz
+  if (items.indexOf("CSXS") !== -1 || items.indexOf("client") !== -1) return dir;
+  // Se tem uma unica pasta, pode ser wrapper do ZIP
+  if (items.length === 1) {
+    var sub = path.join(dir, items[0]);
+    if (fs.statSync(sub).isDirectory()) return findExtractedRoot(sub);
+  }
+  return dir;
+}
+
 function performUpdate(version) {
   var extensionDir = path.join(__dirname, "..");
-  var latestDir = path.join(getStockFolder(), "stockhub-updates", "latest");
+  var tempDir = path.join(os.tmpdir(), "stockhub-update");
+  var zipPath = path.join(os.tmpdir(), "stockhub-update.zip");
+  var backupDir = path.join(os.tmpdir(), "stockhub-backup-" + APP_VERSION);
 
-  // Verifica permissao de escrita
+  // 1. Verificar permissao de escrita
   try {
     fs.accessSync(extensionDir, fs.constants.W_OK);
   } catch (e) {
-    // Sem permissao — mostra instrucoes manuais
     var container = document.getElementById("modalContainer");
     container.innerHTML =
       '<div class="modal-overlay" onclick="closeModal(event)">' +
         '<div class="modal" onclick="event.stopPropagation()" style="max-width:420px;">' +
           '<h3 style="margin:0 0 8px;">Atualizacao manual necessaria</h3>' +
-          '<p style="font-size:11px;color:var(--text-secondary);line-height:1.5;">Nao foi possivel atualizar automaticamente (sem permissao de escrita na pasta da extensao).</p>' +
-          '<p style="font-size:11px;margin:8px 0;">Copie o conteudo de:</p>' +
-          '<p style="font-size:10px;color:var(--green);word-break:break-all;">' + latestDir + '</p>' +
-          '<p style="font-size:11px;margin:8px 0;">Para:</p>' +
-          '<p style="font-size:10px;color:var(--green);word-break:break-all;">' + extensionDir + '</p>' +
-          '<p style="font-size:11px;margin:8px 0;">E recarregue o painel.</p>' +
+          '<p style="font-size:11px;color:var(--text-secondary);line-height:1.5;">Sem permissao de escrita na pasta da extensao. Instale o StockHub em user-scope para auto-update.</p>' +
+          '<p style="font-size:10px;color:var(--text-muted);margin:8px 0;word-break:break-all;">' + extensionDir + '</p>' +
           '<div class="modal-actions"><button class="btn btn-primary" onclick="closeModal()">Entendi</button></div>' +
         '</div>' +
       '</div>';
     return;
   }
 
-  // Copia todos os arquivos
-  try {
-    if (!fs.existsSync(latestDir)) {
-      showToast("Pasta de atualizacao nao encontrada: " + latestDir);
+  if (!pendingUpdateUrl) {
+    showToast("URL de download nao disponivel");
+    return;
+  }
+
+  showToast("Baixando atualizacao...");
+
+  // 2. Baixar ZIP
+  downloadFile(pendingUpdateUrl, zipPath, function(err) {
+    if (err) {
+      showToast("Erro no download: " + err.message);
       return;
     }
-    copyDirSync(latestDir, extensionDir);
-    showToast("Atualizado para v" + version + "! Recarregando...");
-    var banner = document.getElementById("updateBanner");
-    if (banner) banner.remove();
-    setTimeout(function() { location.reload(); }, 1500);
-  } catch (e) {
-    showToast("Erro na atualizacao: " + e.message);
-  }
+
+    try {
+      // 3. Backup de seguranca
+      if (fs.existsSync(backupDir)) rmDirSync(backupDir);
+      copyDirSync(extensionDir, backupDir);
+
+      // 4. Extrair ZIP
+      if (fs.existsSync(tempDir)) rmDirSync(tempDir);
+      fs.mkdirSync(tempDir, { recursive: true });
+
+      var extractCmd = isWindows
+        ? 'powershell -Command "Expand-Archive -Path \'' + zipPath.replace(/'/g, "''") + '\' -DestinationPath \'' + tempDir.replace(/'/g, "''") + '\' -Force"'
+        : 'unzip -o "' + zipPath + '" -d "' + tempDir + '"';
+
+      child.execSync(extractCmd, { timeout: 30000 });
+
+      // 5. Encontrar raiz e copiar (excluindo dados do usuario)
+      var sourceRoot = findExtractedRoot(tempDir);
+      var items = fs.readdirSync(sourceRoot, { withFileTypes: true });
+      var skip = [".cache", "stockhub-data.json", ".debug", "stockhub-updates"];
+      for (var i = 0; i < items.length; i++) {
+        if (skip.indexOf(items[i].name) !== -1) continue;
+        var s = path.join(sourceRoot, items[i].name);
+        var d = path.join(extensionDir, items[i].name);
+        if (items[i].isDirectory()) {
+          copyDirSync(s, d);
+        } else {
+          fs.copyFileSync(s, d);
+        }
+      }
+
+      // 6. Limpar temp
+      try { fs.unlinkSync(zipPath); } catch (e) {}
+      try { rmDirSync(tempDir); } catch (e) {}
+
+      showToast("Atualizado para v" + version + "! Recarregando...");
+      var banner = document.getElementById("updateBanner");
+      if (banner) banner.remove();
+      setTimeout(function() { location.reload(); }, 1500);
+
+    } catch (e) {
+      // Restaurar backup se falhou
+      try {
+        if (fs.existsSync(backupDir)) {
+          copyDirSync(backupDir, extensionDir);
+          showToast("Erro na atualizacao, restaurado backup: " + e.message);
+        }
+      } catch (restoreErr) {
+        showToast("Erro critico: " + e.message);
+      }
+    }
+  });
 }
 
 // --- File Scanning ---
@@ -2995,6 +3103,14 @@ function init() {
 
     // Auto-update check
     checkForUpdates();
+
+    // Dev hot reload: Ctrl+Shift+R recarrega o painel
+    document.addEventListener("keydown", function(e) {
+      if (e.ctrlKey && e.shiftKey && e.key === "R") {
+        e.preventDefault();
+        location.reload();
+      }
+    });
   } catch (e) {
     alert("StockHub init error: " + e.toString());
   }
