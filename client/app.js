@@ -648,7 +648,7 @@ function clearStagingFolder() {
 // --- Auto-update via HTTPS ---
 // URL fixa que sempre aponta para o version.json mais recente.
 // Atualize para o seu repositorio real de releases.
-var UPDATE_CHECK_URL = "https://raw.githubusercontent.com/luissousa/stockhub-releases/main/version.json";
+var UPDATE_CHECK_URL = "https://raw.githubusercontent.com/luissousaodev/stockhub-releases/refs/heads/main/version.json?token=GHSAT0AAAAAADZDAGIHNRKL6AKVBEZPW7462O366BQ";
 
 // Armazena a downloadUrl da versao remota para uso no performUpdate
 var pendingUpdateUrl = null;
