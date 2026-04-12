@@ -1198,3 +1198,222 @@ html, body {
   margin-top: 2px;
   white-space: nowrap;
 }
+
+/* --- Version Label --- */
+.version-label {
+  cursor: pointer;
+  opacity: 0.5;
+  font-size: 9px;
+  transition: opacity 0.15s;
+}
+
+.version-label:hover {
+  opacity: 1;
+}
+
+/* --- Update Banner --- */
+.update-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 500;
+  flex-shrink: 0;
+  z-index: 100;
+}
+
+.update-banner span { flex: 1; }
+
+.update-banner button {
+  padding: 4px 10px;
+  border-radius: var(--radius);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid #ffffff40;
+  background: #ffffff20;
+  color: #fff;
+  transition: background 0.15s;
+}
+
+.update-banner button:hover { background: #ffffff35; }
+
+.update-banner-close {
+  background: none !important;
+  border: none !important;
+  padding: 2px 6px !important;
+  font-size: 16px !important;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+
+.update-banner-close:hover { opacity: 1; }
+
+/* --- Welcome Modal --- */
+.welcome-modal {
+  width: 340px;
+  text-align: center;
+}
+
+.welcome-slide {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  min-height: 180px;
+  justify-content: center;
+}
+
+.welcome-slide h3 {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.welcome-slide p {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  max-width: 280px;
+}
+
+.welcome-slide svg {
+  opacity: 0.6;
+}
+
+.welcome-dots {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  margin: 12px 0;
+}
+
+.welcome-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border);
+  transition: background 0.2s, transform 0.2s;
+}
+
+.welcome-dot.active {
+  background: var(--accent);
+  transform: scale(1.2);
+}
+
+/* --- About Modal --- */
+.about-modal {
+  width: 280px;
+  text-align: center;
+}
+
+.about-modal h3 {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.about-modal .about-version {
+  font-size: 12px;
+  color: var(--accent);
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.about-modal .about-author {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+
+.about-modal .about-desc {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
+/* --- Changelog Modal --- */
+.changelog-modal {
+  width: 380px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.changelog-version {
+  margin-bottom: 16px;
+}
+
+.changelog-version h4 {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.changelog-version .changelog-date {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.changelog-section {
+  margin-bottom: 8px;
+}
+
+.changelog-tag {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin-bottom: 4px;
+}
+
+.changelog-added .changelog-tag {
+  background: #4ec9b030;
+  color: var(--green);
+}
+
+.changelog-fixed .changelog-tag {
+  background: #dcdcaa30;
+  color: var(--yellow);
+}
+
+.changelog-changed .changelog-tag {
+  background: #0078d430;
+  color: var(--accent);
+}
+
+.changelog-section ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.changelog-section li {
+  font-size: 11px;
+  color: var(--text-secondary);
+  padding: 3px 0 3px 14px;
+  position: relative;
+  line-height: 1.4;
+}
+
+.changelog-section li::before {
+  content: "•";
+  position: absolute;
+  left: 2px;
+  color: var(--text-muted);
+}
+
+.changelog-added li::before { color: var(--green); }
+.changelog-fixed li::before { color: var(--yellow); }
+.changelog-changed li::before { color: var(--accent); }

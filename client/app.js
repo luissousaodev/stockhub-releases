@@ -1,4 +1,5 @@
 // StockHub - CEP Extension for Premiere Pro
+var APP_VERSION = "1.1.0";
 var cs = new CSInterface();
 var isWindows = process.platform === "win32";
 var isMac = process.platform === "darwin";
@@ -74,6 +75,9 @@ var state = {
   deletedCategoryIds: [],
   favoriteFiles: {},
   userId: null,
+  stagingFolder: null,
+  lastSeenVersion: null,
+  welcomed: false,
 };
 
 // --- Stock Folder ---
@@ -311,6 +315,9 @@ function loadState() {
       if (data.userId) state.userId = data.userId;
       if (data.sidebarWidth) state.sidebarWidth = data.sidebarWidth;
       if (data.favoriteFiles) state.favoriteFiles = data.favoriteFiles;
+      if (data.stagingFolder) state.stagingFolder = data.stagingFolder;
+      if (data.lastSeenVersion) state.lastSeenVersion = data.lastSeenVersion;
+      if (data.welcomed) state.welcomed = data.welcomed;
       state.dataSchemaVersion = data.dataSchemaVersion || 1;
 
       // Migracao one-shot: chaves absolutas -> chaves relativas a pasta de stock.
@@ -349,9 +356,398 @@ function saveState() {
       favoriteFiles: state.favoriteFiles,
       userId: state.userId,
       sidebarWidth: state.sidebarWidth,
+      stagingFolder: state.stagingFolder,
+      lastSeenVersion: state.lastSeenVersion,
+      welcomed: state.welcomed,
     }), "utf-8");
   } catch (e) {
     console.error("Save failed:", e);
+  }
+}
+
+// --- Changelog ---
+var changelogData = null;
+function loadChangelog() {
+  try {
+    var fs = require("fs");
+    var path = require("path");
+    var file = path.join(__dirname, "..", "CHANGELOG.json");
+    if (fs.existsSync(file)) {
+      changelogData = JSON.parse(fs.readFileSync(file, "utf-8"));
+    }
+  } catch (e) {
+    console.error("Failed to load CHANGELOG.json:", e);
+  }
+}
+
+// --- Semver ---
+function compareSemver(a, b) {
+  if (!a || !b) return 0;
+  var pa = String(a).split(".").map(Number);
+  var pb = String(b).split(".").map(Number);
+  for (var i = 0; i < 3; i++) {
+    var va = pa[i] || 0, vb = pb[i] || 0;
+    if (va > vb) return 1;
+    if (va < vb) return -1;
+  }
+  return 0;
+}
+
+// --- Sobre modal ---
+function showAboutModal() {
+  var container = document.getElementById("modalContainer");
+  container.innerHTML =
+    '<div class="modal-overlay" onclick="closeModal(event)">' +
+      '<div class="modal about-modal" onclick="event.stopPropagation()" style="max-width:340px;text-align:center;">' +
+        '<div style="margin-bottom:12px;">' +
+          '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">' +
+            '<rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>' +
+          '</svg>' +
+        '</div>' +
+        '<h3 style="margin:0 0 4px;">StockHub</h3>' +
+        '<p style="color:var(--text-muted);font-size:11px;margin:0 0 8px;">v' + APP_VERSION + '</p>' +
+        '<p style="font-size:11px;margin:0 0 12px;color:var(--text-secondary);">Painel de assets para Adobe Premiere Pro.<br>Centraliza stocks em um unico lugar com preview, categorias e importacao direta.</p>' +
+        '<p style="font-size:10px;color:var(--text-muted);margin:0 0 16px;">Desenvolvido por Luis Sousa</p>' +
+        '<div class="modal-actions" style="justify-content:center;gap:8px;">' +
+          '<button class="btn" onclick="showChangelogModal()">Ver changelog</button>' +
+          '<button class="btn btn-primary" onclick="closeModal()">Fechar</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+}
+
+// --- Changelog modal ---
+function renderChangelogHTML(versions) {
+  var html = '';
+  for (var i = 0; i < versions.length; i++) {
+    var v = versions[i];
+    html += '<div class="changelog-version">' +
+      '<h4 style="margin:0 0 6px;color:var(--accent);">v' + v.version + ' <span style="font-weight:400;color:var(--text-muted);font-size:10px;">— ' + v.date + '</span></h4>';
+    if (v.changes.added && v.changes.added.length) {
+      html += '<div class="changelog-section"><span class="changelog-tag changelog-added">Adicionado</span><ul>';
+      for (var a = 0; a < v.changes.added.length; a++) html += '<li>' + v.changes.added[a] + '</li>';
+      html += '</ul></div>';
+    }
+    if (v.changes.fixed && v.changes.fixed.length) {
+      html += '<div class="changelog-section"><span class="changelog-tag changelog-fixed">Corrigido</span><ul>';
+      for (var f = 0; f < v.changes.fixed.length; f++) html += '<li>' + v.changes.fixed[f] + '</li>';
+      html += '</ul></div>';
+    }
+    if (v.changes.changed && v.changes.changed.length) {
+      html += '<div class="changelog-section"><span class="changelog-tag changelog-changed">Alterado</span><ul>';
+      for (var c = 0; c < v.changes.changed.length; c++) html += '<li>' + v.changes.changed[c] + '</li>';
+      html += '</ul></div>';
+    }
+    html += '</div>';
+  }
+  return html;
+}
+
+function showChangelogModal() {
+  if (!changelogData) loadChangelog();
+  var versions = changelogData ? changelogData.versions : [];
+  var container = document.getElementById("modalContainer");
+  container.innerHTML =
+    '<div class="modal-overlay" onclick="closeModal(event)">' +
+      '<div class="modal changelog-modal" onclick="event.stopPropagation()" style="max-width:480px;">' +
+        '<h3 style="margin:0 0 12px;">Changelog</h3>' +
+        '<div class="changelog-list" style="max-height:400px;overflow-y:auto;">' +
+          renderChangelogHTML(versions) +
+        '</div>' +
+        '<div class="modal-actions" style="margin-top:12px;">' +
+          '<button class="btn btn-primary" onclick="closeModal()">Fechar</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+}
+
+// --- What's New modal (apos update) ---
+function showWhatsNewModal() {
+  if (!changelogData) loadChangelog();
+  var versions = changelogData ? changelogData.versions : [];
+  var newer = [];
+  for (var i = 0; i < versions.length; i++) {
+    if (compareSemver(versions[i].version, state.lastSeenVersion) > 0) {
+      newer.push(versions[i]);
+    }
+  }
+  if (newer.length === 0) return;
+  var container = document.getElementById("modalContainer");
+  container.innerHTML =
+    '<div class="modal-overlay" onclick="closeWhatsNewModal(event)">' +
+      '<div class="modal changelog-modal" onclick="event.stopPropagation()" style="max-width:480px;">' +
+        '<h3 style="margin:0 0 4px;">O que ha de novo</h3>' +
+        '<p style="color:var(--text-muted);font-size:10px;margin:0 0 12px;">StockHub v' + APP_VERSION + '</p>' +
+        '<div class="changelog-list" style="max-height:400px;overflow-y:auto;">' +
+          renderChangelogHTML(newer) +
+        '</div>' +
+        '<div class="modal-actions" style="margin-top:12px;">' +
+          '<button class="btn btn-primary" onclick="closeWhatsNewModal()">Entendi</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+}
+function closeWhatsNewModal(e) {
+  if (e && e.target !== e.currentTarget) return;
+  state.lastSeenVersion = APP_VERSION;
+  saveState();
+  document.getElementById("modalContainer").innerHTML = "";
+}
+
+// --- Welcome modal (primeira execucao) ---
+var welcomeSlides = [
+  {
+    icon: '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>',
+    title: 'Bem-vindo ao StockHub!',
+    text: 'Centralize seus assets de stock — videos, imagens, audios e MOGRTs — em um unico painel dentro do Premiere Pro.'
+  },
+  {
+    icon: '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>',
+    title: 'Configure sua pasta de assets',
+    text: 'Clique no icone de engrenagem e escolha a pasta onde ficam seus stocks. Subpastas viram categorias automaticamente.'
+  },
+  {
+    icon: '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>',
+    title: 'Importe e arraste para a timeline',
+    text: 'Arraste qualquer asset direto para a timeline do Premiere. Duplo clique insere na posicao do playhead automaticamente.'
+  },
+  {
+    icon: '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#4ec9b0" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+    title: 'Tudo pronto!',
+    text: 'Voce esta pronto para usar o StockHub. Acesse as configuracoes a qualquer momento pelo icone de engrenagem.'
+  }
+];
+
+function showWelcomeModal(step) {
+  if (step < 0) step = 0;
+  if (step >= welcomeSlides.length) { closeWelcomeModal(); return; }
+  var s = welcomeSlides[step];
+  var dots = '';
+  for (var d = 0; d < welcomeSlides.length; d++) {
+    dots += '<span class="welcome-dot' + (d === step ? ' active' : '') + '"></span>';
+  }
+  var prevBtn = step > 0
+    ? '<button class="btn" onclick="showWelcomeModal(' + (step - 1) + ')">Anterior</button>'
+    : '';
+  var nextBtn = step < welcomeSlides.length - 1
+    ? '<button class="btn btn-primary" onclick="showWelcomeModal(' + (step + 1) + ')">Proximo</button>'
+    : '<button class="btn btn-primary" onclick="closeWelcomeModal()">Comecar</button>';
+  var container = document.getElementById("modalContainer");
+  container.innerHTML =
+    '<div class="modal-overlay">' +
+      '<div class="modal welcome-modal" onclick="event.stopPropagation()" style="max-width:360px;text-align:center;">' +
+        '<div class="welcome-slide">' +
+          '<div style="margin-bottom:16px;">' + s.icon + '</div>' +
+          '<h3 style="margin:0 0 8px;">' + s.title + '</h3>' +
+          '<p style="font-size:11px;color:var(--text-secondary);margin:0 0 20px;line-height:1.5;">' + s.text + '</p>' +
+        '</div>' +
+        '<div class="welcome-dots">' + dots + '</div>' +
+        '<div class="modal-actions" style="justify-content:center;gap:8px;margin-top:16px;">' +
+          prevBtn + nextBtn +
+        '</div>' +
+      '</div>' +
+    '</div>';
+}
+function closeWelcomeModal() {
+  state.welcomed = true;
+  saveState();
+  document.getElementById("modalContainer").innerHTML = "";
+}
+
+// --- Staging Local ---
+function getDefaultStagingFolder() {
+  var path = require("path");
+  var home = process.env.HOME || process.env.USERPROFILE || "";
+  return path.join(home, "StockHub_staging");
+}
+function getStagingFolder() {
+  return state.stagingFolder || getDefaultStagingFolder();
+}
+
+function stageFileIfNeeded(file) {
+  if (!file || !file.cloudOnly) return file.path;
+  var fs = require("fs");
+  var path = require("path");
+  var rel = toRelPath(file.path);
+  var stagedPath = path.join(getStagingFolder(), rel);
+  // Se ja existe com mesmo tamanho, reusar
+  try {
+    if (fs.existsSync(stagedPath)) {
+      var st = fs.statSync(stagedPath);
+      if (st.size === file.size && st.size > 0) return stagedPath;
+    }
+  } catch (e) {}
+  // Copiar para staging
+  try {
+    fs.mkdirSync(path.dirname(stagedPath), { recursive: true });
+    fs.copyFileSync(file.path, stagedPath);
+    showToast("Asset copiado para staging local");
+    return stagedPath;
+  } catch (e) {
+    console.error("Staging copy failed:", e);
+    return file.path; // fallback para path original
+  }
+}
+
+function getStagedPathIfExists(file) {
+  if (!file || !file.cloudOnly) return null;
+  var fs = require("fs");
+  var path = require("path");
+  var rel = toRelPath(file.path);
+  var stagedPath = path.join(getStagingFolder(), rel);
+  try {
+    if (fs.existsSync(stagedPath)) {
+      var st = fs.statSync(stagedPath);
+      if (st.size > 0) return stagedPath;
+    }
+  } catch (e) {}
+  return null;
+}
+
+function changeStagingFolder() {
+  var result = window.cep && window.cep.fs && window.cep.fs.showOpenDialogEx
+    ? window.cep.fs.showOpenDialogEx(false, true, "Escolha a pasta de staging", "")
+    : null;
+  if (result && result.data && result.data.length > 0) {
+    state.stagingFolder = result.data[0];
+    saveState();
+    var el = document.getElementById("stagingFolderPath");
+    if (el) el.textContent = state.stagingFolder;
+    showToast("Pasta de staging alterada");
+  }
+}
+
+function getStagingSize() {
+  var fs = require("fs");
+  var path = require("path");
+  var folder = getStagingFolder();
+  var total = 0;
+  function walk(dir) {
+    try {
+      var items = fs.readdirSync(dir);
+      for (var i = 0; i < items.length; i++) {
+        var full = path.join(dir, items[i]);
+        var st = fs.statSync(full);
+        if (st.isDirectory()) walk(full);
+        else total += st.size;
+      }
+    } catch (e) {}
+  }
+  try { if (fs.existsSync(folder)) walk(folder); } catch (e) {}
+  if (total < 1024 * 1024) return (total / 1024).toFixed(1) + " KB";
+  if (total < 1024 * 1024 * 1024) return (total / (1024 * 1024)).toFixed(1) + " MB";
+  return (total / (1024 * 1024 * 1024)).toFixed(1) + " GB";
+}
+
+function clearStagingFolder() {
+  var fs = require("fs");
+  var folder = getStagingFolder();
+  try {
+    fs.rmSync(folder, { recursive: true, force: true });
+    fs.mkdirSync(folder, { recursive: true });
+    var el = document.getElementById("stagingSize");
+    if (el) el.textContent = "0 KB";
+    showToast("Staging limpo com sucesso");
+  } catch (e) {
+    showToast("Erro ao limpar staging: " + e.message);
+  }
+}
+
+// --- Auto-update via Drive ---
+function checkForUpdates() {
+  try {
+    var fs = require("fs");
+    var path = require("path");
+    var updateDir = path.join(getStockFolder(), "stockhub-updates");
+    var versionFile = path.join(updateDir, "version.json");
+    if (!fs.existsSync(versionFile)) return;
+    var remote = JSON.parse(fs.readFileSync(versionFile, "utf-8"));
+    if (!remote.version) return;
+    if (compareSemver(remote.version, APP_VERSION) > 0) {
+      showUpdateBanner(remote.version, remote.notes || "");
+    }
+  } catch (e) {
+    // Silencioso se nao encontrar — normal quando nao ha update
+  }
+}
+
+function showUpdateBanner(version, notes) {
+  if (document.getElementById("updateBanner")) return;
+  var app = document.getElementById("app");
+  if (!app) return;
+  var banner = document.createElement("div");
+  banner.id = "updateBanner";
+  banner.className = "update-banner";
+  banner.innerHTML =
+    '<div style="flex:1;display:flex;align-items:center;gap:8px;">' +
+      '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+        '<path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>' +
+      '</svg>' +
+      '<span>StockHub <strong>v' + version + '</strong> disponivel' + (notes ? ' — ' + notes : '') + '</span>' +
+    '</div>' +
+    '<button class="btn" onclick="performUpdate(\'' + version + '\')" style="background:#ffffff22;border:none;color:#fff;font-size:10px;padding:3px 10px;">Atualizar agora</button>' +
+    '<span onclick="this.parentElement.remove()" style="cursor:pointer;opacity:0.7;padding:0 4px;font-size:14px;">✕</span>';
+  app.insertBefore(banner, app.firstChild);
+}
+
+function copyDirSync(src, dest) {
+  var fs = require("fs");
+  var path = require("path");
+  if (!fs.existsSync(src)) return;
+  fs.mkdirSync(dest, { recursive: true });
+  var items = fs.readdirSync(src, { withFileTypes: true });
+  for (var i = 0; i < items.length; i++) {
+    var s = path.join(src, items[i].name);
+    var d = path.join(dest, items[i].name);
+    if (items[i].isDirectory()) {
+      copyDirSync(s, d);
+    } else {
+      fs.copyFileSync(s, d);
+    }
+  }
+}
+
+function performUpdate(version) {
+  var fs = require("fs");
+  var path = require("path");
+  var extensionDir = path.join(__dirname, "..");
+  var latestDir = path.join(getStockFolder(), "stockhub-updates", "latest");
+
+  // Verifica permissao de escrita
+  try {
+    fs.accessSync(extensionDir, fs.constants.W_OK);
+  } catch (e) {
+    // Sem permissao — mostra instrucoes manuais
+    var container = document.getElementById("modalContainer");
+    container.innerHTML =
+      '<div class="modal-overlay" onclick="closeModal(event)">' +
+        '<div class="modal" onclick="event.stopPropagation()" style="max-width:420px;">' +
+          '<h3 style="margin:0 0 8px;">Atualizacao manual necessaria</h3>' +
+          '<p style="font-size:11px;color:var(--text-secondary);line-height:1.5;">Nao foi possivel atualizar automaticamente (sem permissao de escrita na pasta da extensao).</p>' +
+          '<p style="font-size:11px;margin:8px 0;">Copie o conteudo de:</p>' +
+          '<p style="font-size:10px;color:var(--green);word-break:break-all;">' + latestDir + '</p>' +
+          '<p style="font-size:11px;margin:8px 0;">Para:</p>' +
+          '<p style="font-size:10px;color:var(--green);word-break:break-all;">' + extensionDir + '</p>' +
+          '<p style="font-size:11px;margin:8px 0;">E recarregue o painel.</p>' +
+          '<div class="modal-actions"><button class="btn btn-primary" onclick="closeModal()">Entendi</button></div>' +
+        '</div>' +
+      '</div>';
+    return;
+  }
+
+  // Copia todos os arquivos
+  try {
+    if (!fs.existsSync(latestDir)) {
+      showToast("Pasta de atualizacao nao encontrada: " + latestDir);
+      return;
+    }
+    copyDirSync(latestDir, extensionDir);
+    showToast("Atualizado para v" + version + "! Recarregando...");
+    var banner = document.getElementById("updateBanner");
+    if (banner) banner.remove();
+    setTimeout(function() { location.reload(); }, 1500);
+  } catch (e) {
+    showToast("Erro na atualizacao: " + e.message);
   }
 }
 
@@ -732,7 +1128,8 @@ function getThumbnail(file) {
 function importToProject(fileIndex) {
   var file = state.files[fileIndex];
   if (!file) return;
-  var escapedPath = file.path.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  var importPath = stageFileIfNeeded(file);
+  var escapedPath = importPath.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
   cs.evalScript("importFileToProject('" + escapedPath + "')", function(result) {
     try {
       var res = JSON.parse(result);
@@ -1001,8 +1398,12 @@ var hoverTimer = null;
 function onMouseEnter(el, fileIndex) {
   var file = state.files[fileIndex];
   if (!file || (file.type !== "video" && file.type !== "audio")) return;
-  // Nao gera preview para placeholders do Drive — forcaria download
-  if (file.cloudOnly) return;
+  // Para placeholders do Drive: pre-stage em background para que o drag
+  // use o path staged, mas nao gera preview de video (evita download pesado do ffmpeg)
+  if (file.cloudOnly) {
+    setTimeout(function() { stageFileIfNeeded(file); }, 0);
+    return;
+  }
 
   // Small delay to avoid triggering on quick mouse passes
   clearTimeout(hoverTimer);
@@ -1145,12 +1546,14 @@ function onFileDragStart(e, fileIndex) {
   e.dataTransfer.effectAllowed = "copyMove";
 
   if (file && file.path) {
+    // Usa path staged se disponivel (nao copia no drag — ja foi staged no hover)
+    var dragPath = getStagedPathIfExists(file) || file.path;
     // MIME oficial do CEP para drop nativo em apps Adobe (Premiere/AE/etc).
     // O Premiere aceita ate 9 arquivos via .file.0 ... .file.8
-    try { e.dataTransfer.setData("com.adobe.cep.dnd.file.0", file.path); } catch (err) {}
+    try { e.dataTransfer.setData("com.adobe.cep.dnd.file.0", dragPath); } catch (err) {}
     // Fallback URI para outros alvos
     try {
-      var uri = toFileURL(file.path).replace(/ /g, "%20");
+      var uri = toFileURL(dragPath).replace(/ /g, "%20");
       e.dataTransfer.setData("text/uri-list", uri);
     } catch (err2) {}
   }
@@ -1231,7 +1634,8 @@ function onFavoritesDrop(e) {
 function onDoubleClick(fileIndex) {
   var file = state.files[fileIndex];
   if (!file) return;
-  var escapedPath = file.path.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  var importPath = stageFileIfNeeded(file);
+  var escapedPath = importPath.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
   cs.evalScript("importFileToTimeline('" + escapedPath + "')", function(result) {
     try {
       var res = JSON.parse(result);
@@ -1318,6 +1722,10 @@ function toggleSettings() {
     settingsBtn.style.color = "var(--accent)";
     var fp = document.getElementById("stockFolderPath");
     if (fp) fp.textContent = getStockFolder();
+    var sfp = document.getElementById("stagingFolderPath");
+    if (sfp) sfp.textContent = getStagingFolder();
+    var ss = document.getElementById("stagingSize");
+    if (ss) ss.textContent = getStagingSize();
     renderCatEditList();
   } else {
     settingsPanel.style.display = "none";
@@ -2577,8 +2985,13 @@ function renderMetrics() {
 function init() {
   try {
     loadState();
+    loadChangelog();
     document.getElementById("gridSize").value = state.gridSize;
     ensureStockFolder();
+
+    // Version label no footer
+    var vl = document.getElementById("versionLabel");
+    if (vl) vl.textContent = "v" + APP_VERSION;
 
     var ff = findFFmpeg();
     if (ff) {
@@ -2600,6 +3013,22 @@ function init() {
     if (!state.userId) {
       showUserIdModal();
     }
+
+    // Welcome modal (primeira execucao)
+    if (!state.welcomed) {
+      showWelcomeModal(0);
+    }
+
+    // What's new modal (apos update)
+    if (state.lastSeenVersion && compareSemver(APP_VERSION, state.lastSeenVersion) > 0) {
+      showWhatsNewModal();
+    } else if (!state.lastSeenVersion) {
+      state.lastSeenVersion = APP_VERSION;
+      saveState();
+    }
+
+    // Auto-update check
+    checkForUpdates();
   } catch (e) {
     alert("StockHub init error: " + e.toString());
   }

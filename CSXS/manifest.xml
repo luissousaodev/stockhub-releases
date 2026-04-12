@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<ExtensionManifest Version="12.0" ExtensionBundleId="com.stockhub.panel" ExtensionBundleVersion="1.0.0" ExtensionBundleName="StockHub">
+<ExtensionManifest Version="12.0" ExtensionBundleId="com.stockhub.panel" ExtensionBundleVersion="1.1.0" ExtensionBundleName="StockHub">
   <ExtensionList>
-    <Extension Id="com.stockhub.panel" Version="1.0.0" />
+    <Extension Id="com.stockhub.panel" Version="1.1.0" />
   </ExtensionList>
   <ExecutionEnvironment>
     <HostList>
