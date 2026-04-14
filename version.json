@@ -1,6 +1,6 @@
 {
-  "version": "1.2.0",
-  "date": "2026-04-12",
-  "notes": "",
-  "downloadUrl": "https://github.com/luissousaodev/stockhub-releases/raw/main/StockHub-1.2.0.zip"
+  "version": "1.3.0",
+  "date": "2026-04-14",
+  "notes": "Fase 3 — qualidade, batch import, tagging e welcome melhorado\nFases visuais no modal de auto-update e fix de lockup\nSistema de auto-update robusto com modal e aviso periodico a cada 2h\nAdd version.json with initial version 1.1.0\nStaging local de assets cloud, sistema de versionamento e auto-update\nScrubbing por hover no preview de video\nOtimiza StockHub para uso em equipe com Google Drive (Win + Mac)\nDrop em favoritos e paleta dark mais profunda estilo premiere\nAdiciona favoritos de assets, context menu nas categorias, sidebar redimensionável e exportação CSV com diálogo de salvar\nAdiciona suporte a subcategorias com hierarquia de pastas na sidebar\nSubstitui seletor de pasta antigo pelo Explorer moderno do Windows\nAdiciona preview de áudio ao passar o mouse com indicador visual animado\nImplementa date picker customizado (pt-BR) e padroniza formatação de datas na UI e gráficos\nAdiciona suporte cross-platform (Windows e macOS)\nPrioriza inserção na track superior e cria nova quando necessário\nImplementar event sourcing com logs JSONL por usuário, dashboard de métricas e exportação CSV",
+  "downloadUrl": "https://github.com/luissousaodev/stockhub-releases/raw/main/StockHub-1.3.0.zip"
 }
