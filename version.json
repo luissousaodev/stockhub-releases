@@ -1,6 +1,6 @@
 {
-  "version": "1.3.1",
-  "date": "2026-04-14",
-  "notes": "",
-  "downloadUrl": "https://github.com/luissousaodev/stockhub-releases/raw/main/StockHub-1.3.1.zip"
+  "version": "1.1.0",
+  "date": "2026-04-15",
+  "notes": "Adicionar instalador macOS e corrigir NSI do Windows\nMulti-seleção com drag, double-click e timeline batch + selection bar sticky",
+  "downloadUrl": "https://github.com/luissousaodev/stockhub-releases/raw/main/StockHub-1.1.0.zip"
 }
