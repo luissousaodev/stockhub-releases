@@ -1,6 +1,6 @@
 {
-  "version": "1.1.0",
-  "date": "2026-04-15",
-  "notes": "Adicionar instalador macOS e corrigir NSI do Windows\nMulti-seleção com drag, double-click e timeline batch + selection bar sticky",
-  "downloadUrl": "https://github.com/luissousaodev/stockhub-releases/raw/main/StockHub-1.1.0.zip"
+  "version": "1.2.0",
+  "date": "2026-04-28",
+  "notes": "Drive compartilhado robusto e melhorias de UX\nPolish de UX, settings expandido e bug fixes (Onda 2)\nOnboarding e feedback claros (Onda 1)",
+  "downloadUrl": "https://github.com/luissousaodev/stockhub-releases/raw/main/StockHub-1.2.0.zip"
 }
