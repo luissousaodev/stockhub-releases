@@ -1,6 +1,6 @@
 {
-  "version": "1.2.0",
-  "date": "2026-04-28",
-  "notes": "Drive compartilhado robusto e melhorias de UX\nPolish de UX, settings expandido e bug fixes (Onda 2)\nOnboarding e feedback claros (Onda 1)",
-  "downloadUrl": "https://github.com/luissousaodev/stockhub-releases/raw/main/StockHub-1.2.0.zip"
+  "version": "1.4.0",
+  "date": "2026-05-04",
+  "notes": "Redesign do painel para layout v1.3 com paleta sobria",
+  "downloadUrl": "https://github.com/luissousaodev/stockhub-releases/raw/main/StockHub-1.4.0.zip"
 }
