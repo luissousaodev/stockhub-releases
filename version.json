@@ -1,6 +1,6 @@
 {
-  "version": "1.7.1",
+  "version": "1.7.2",
   "date": "2026-05-13",
-  "notes": "Categorias da sidebar em ordem alfabetica",
-  "downloadUrl": "https://github.com/luissousaodev/stockhub-releases/raw/main/StockHub-1.7.1.zip"
+  "notes": "Adiciona o asset na pasta do projeto",
+  "downloadUrl": "https://github.com/luissousaodev/stockhub-releases/raw/main/StockHub-1.7.2.zip"
 }
