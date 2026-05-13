@@ -1,6 +1,6 @@
 {
-  "version": "1.7.0",
-  "date": "2026-05-12",
-  "notes": "Save/load folder index sidecar\nPreview por frame-strip + boot rapido + escala 5K+ + sidecar de meta",
-  "downloadUrl": "https://github.com/luissousaodev/stockhub-releases/raw/main/StockHub-1.7.0.zip"
+  "version": "1.7.1",
+  "date": "2026-05-13",
+  "notes": "Categorias da sidebar em ordem alfabetica",
+  "downloadUrl": "https://github.com/luissousaodev/stockhub-releases/raw/main/StockHub-1.7.1.zip"
 }
